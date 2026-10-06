@@ -196,13 +196,13 @@ Evaluates geometric properties on candidate weapon crops to distinguish actual w
      * Aspect in $[1.0, 1.2) \rightarrow 0.70$ score.
      * Outside range $\rightarrow 0.55$ score.
   2. **Canny Edge Density**: Canny edge detection ($50, 150$) computes edge density:
-     $$\text{Density} = \frac{\sum \text{edge\_pixels}}{w \times h}$$
+     $$\text{Density} = \frac{\sum \text{Edge Pixels}}{w \times h}$$
      Weapons have sharp metallic boundaries, scoring $\text{Density} \times 4.0$ clipped between $0.40$ and $1.0$.
   3. **Contour Solidity**: Finds the largest external contour $C$ and its convex hull $H$:
      $$\text{Solidity} = \frac{\text{Area}(C)}{\text{Area}(H)}$$
      Weapons feature non-convex geometries (trigger guards, handles, barrels), typical solidity falling in $[0.30, 0.88] \rightarrow 0.90$ score. Convex blobs score $0.60$.
 * **Composite Formula**:
-  $$\text{Shape\_Score} = 0.40 \cdot \text{Aspect\_Score} + 0.35 \cdot \text{Density\_Score} + 0.25 \cdot \text{Solidity\_Score}$$
+  $$\text{Shape Score} = 0.40 \cdot \text{Aspect Score} + 0.35 \cdot \text{Density Score} + 0.25 \cdot \text{Solidity Score}$$
 * **Inputs**: `roi_crop` (`numpy.ndarray`): Bounding box crop of the detected weapon.
 * **Returns**: `float` — Normalized shape confidence ($0.00$ to $1.00$).
 
@@ -232,7 +232,7 @@ Combines person detection, generous safety margins, multi-tile slicing (SAHI), a
     7. **Fallback**: Runs inference on the full frame if no humans are detected or if zoom is disabled.
   * **Returns**:
     * `raw_candidates` (`list[dict]`): List of candidate dictionaries with keys `box` $(x_1, y_1, x_2, y_2)$, `cls`, `label`, `conf`, and `roi` image.
-    * `person_boxes` (`list[tuple]`): List of $(px_1, py_1, px_2, py_2, p\_conf)$.
+    * `person_boxes` (`list[tuple]`): List of `(px_1, py_1, px_2, py_2, p_conf)`.
 
 ---
 
@@ -250,8 +250,8 @@ Enforces the verification pipeline to eliminate false positives.
     2. **Branching**:
        * If AI confidence $\ge 80\%$, grants a direct pass (`shape_score = 1.0`, `weighted_score = ai_conf`).
        * If AI confidence is between $60\%$ and $80\%$, computes `compute_shape_similarity(roi)` and evaluates:
-         $$\text{Weighted\_Score} = (0.70 \cdot \text{AI\_Conf}) + (0.30 \cdot \text{Shape\_Score})$$
-         Requires $\text{Weighted\_Score} \ge 0.70$ to advance.
+         $$\text{Weighted Score} = (0.70 \cdot \text{AI Conf}) + (0.30 \cdot \text{Shape Score})$$
+         Requires $\text{Weighted Score} \ge 0.70$ to advance.
     3. **Temporal Frame Accumulation**:
        * If a candidate passes, increments `consecutive_frames`.
        * If no candidate passes in this frame, decrements `consecutive_frames` towards 0.
