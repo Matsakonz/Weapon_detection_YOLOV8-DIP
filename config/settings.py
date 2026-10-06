@@ -26,6 +26,10 @@ WEIGHTED_SCORE_MIN = 0.70    # > 74% (>= 0.75) required to pass
 FRAME_ACCUMULATION_MIN = 4   # > 3 Frames (>= 4 consecutive detections)
 DASHBOARD_ACTIVE = False      # Dashboard / monitoring armed status
 
+# Threat Class Filtering (Default detects only actual weapons: Pistol & Knife)
+ALL_CLASSES = ["Pistol", "Knife", "Smartphone", "Purse", "Bill", "Card"]
+TARGET_CLASSES = ["Pistol", "Knife"]
+
 # DIP & Camera Settings
 IMGSZ = 1280
 USE_HUMAN_ZOOM = True

@@ -21,6 +21,8 @@ from config.settings import (
     WEIGHTED_SCORE_MIN,
     FRAME_ACCUMULATION_MIN,
     DASHBOARD_ACTIVE,
+    TARGET_CLASSES,
+    ALL_CLASSES,
     IMGSZ,
     USE_HUMAN_ZOOM,
     USE_SAHI,
@@ -45,6 +47,8 @@ state = {
     "weighted_score_min": WEIGHTED_SCORE_MIN,
     "frame_accum_min": FRAME_ACCUMULATION_MIN,
     "dashboard_active": True,
+    "target_classes": list(TARGET_CLASSES),
+    "all_classes": list(ALL_CLASSES),
     "use_zoom": USE_HUMAN_ZOOM,
     "use_sahi": USE_SAHI,
     "use_dip": USE_DIP,
@@ -148,6 +152,7 @@ class CameraStreamWorker:
                 raw_cands, person_boxes = detector.detect(
                     frame_to_process, conf_threshold=state["conf_min"], imgsz=IMGSZ,
                     use_zoom=state["use_zoom"], use_sahi=state["use_sahi"],
+                    target_classes=state["target_classes"],
                     use_dip=state["use_dip"], use_wavelet=state["use_wavelet"]
                 )
 
@@ -436,7 +441,9 @@ def get_settings():
         "WEIGHTED_SCORE_MIN": state["weighted_score_min"],
         "FRAME_ACCUMULATION_MIN": state["frame_accum_min"],
         "DASHBOARD_ACTIVE": state["dashboard_active"],
-        "USE_SAHI": state["use_sahi"]
+        "USE_SAHI": state["use_sahi"],
+        "target_classes": state["target_classes"],
+        "all_classes": state["all_classes"]
     })
 
 @app.route('/api/settings', methods=['POST'])
@@ -449,6 +456,8 @@ def save_settings():
     if "WEIGHTED_SCORE_MIN" in data: state["weighted_score_min"] = float(data["WEIGHTED_SCORE_MIN"])
     if "FRAME_ACCUMULATION_MIN" in data: state["frame_accum_min"] = int(data["FRAME_ACCUMULATION_MIN"])
     if "USE_SAHI" in data: state["use_sahi"] = bool(data["USE_SAHI"])
+    if "target_classes" in data and isinstance(data["target_classes"], list):
+        state["target_classes"] = [str(c).strip() for c in data["target_classes"] if str(c).strip()]
     return jsonify({"success": True})
 
 @app.route('/api/toggle/<feature>', methods=['POST'])

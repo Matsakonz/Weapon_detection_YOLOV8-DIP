@@ -391,6 +391,8 @@ Flask-based web interface featuring decoupled camera ingestion, multi-camera gri
 | `WEIGHTED_SCORE_MIN` | `0.70` | Minimum composite score required to pass verification ($\ge 70\%$). |
 | `FRAME_ACCUMULATION_MIN` | `4` | Number of consecutive positive frames required to confirm a threat. |
 | `DASHBOARD_ACTIVE` | `False` | Default monitoring armed status in CLI mode. |
+| `TARGET_CLASSES` | `["Pistol", "Knife"]` | Threat classes to detect. By default, only actual weapons are detected. |
+| `ALL_CLASSES` | `["Pistol", "Knife", "Smartphone", "Purse", "Bill", "Card"]` | All available classes supported by the trained model. |
 | `IMGSZ` | `1280` | YOLO inference input image resolution. |
 | `USE_HUMAN_ZOOM` | `True` | Enables person detection crop and ROI zooming. |
 | `USE_SAHI` | `True` | Enables Targeted SAHI (Multi-tile Slicing) on human crops. |

@@ -20,6 +20,7 @@ from config.settings import (
     IMGSZ,
     USE_HUMAN_ZOOM,
     USE_SAHI,
+    TARGET_CLASSES,
     USE_DIP,
     USE_WAVELET
 )
@@ -49,13 +50,15 @@ def open_cap(camera_idx, resolution=CAMERA_RESOLUTION):
     return cap
 
 def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
-               use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI, use_dip=USE_DIP, use_wavelet=USE_WAVELET,
+               use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI, target_classes=TARGET_CLASSES,
+               use_dip=USE_DIP, use_wavelet=USE_WAVELET,
                start_dual_mode=False):
     """
     Executes live detection with Multi-Camera support:
     - Dynamic switching between cameras with 'k' or '0', '1'...
     - Dual-Camera split-screen grid view with 'g'
     - Targeted SAHI Multi-Tile Slicing on human crop with 't'
+    - Threat Class Filtering (Defaults to detecting Pistol & Knife)
     - Full Flowchart Verification Pipeline (DIP, Zoom, Confidence, Shape, Accumulation, Alerts)
     """
     available_cams = scan_available_cameras()
@@ -80,7 +83,7 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
 
     actual_w = int(cap_primary.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(cap_primary.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[Camera] Active Camera {active_cam_idx}: {actual_w}x{actual_h} | Base Conf: {conf_threshold} | imgsz: {imgsz}")
+    print(f"[Camera] Active Camera {active_cam_idx}: {actual_w}x{actual_h} | Base Conf: {conf_threshold} | Classes: {target_classes}")
 
     window_name = "Threat Detection System ('k':cam | 'g':dual | 't':SAHI | 'd':DIP | 'w':wavelet | 'z':zoom | 's':snap | 'q':quit)"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -103,7 +106,8 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
             # 1. Detection on Primary Camera
             raw_cands1, person_boxes1 = detector.detect(
                 frame1, conf_threshold=conf_threshold, imgsz=imgsz,
-                use_zoom=use_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet
+                use_zoom=use_zoom, use_sahi=use_sahi, target_classes=target_classes,
+                use_dip=use_dip, use_wavelet=use_wavelet
             )
             verified1, is_confirmed1 = verifier.verify_candidates(raw_cands1, frame1)
 
@@ -120,7 +124,8 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
                 if ret2:
                     raw_cands2, person_boxes2 = detector.detect(
                         frame2, conf_threshold=conf_threshold, imgsz=imgsz,
-                        use_zoom=use_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet
+                        use_zoom=use_zoom, use_sahi=use_sahi, target_classes=target_classes,
+                        use_dip=use_dip, use_wavelet=use_wavelet
                     )
                     verified2, is_confirmed2 = verifier.verify_candidates(raw_cands2, frame2)
                     sec_idx = available_cams[1] if active_cam_idx == available_cams[0] else available_cams[0]
@@ -201,6 +206,7 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
 def run_image_comparison(images_dir=DATA_IMAGES_DIR, output_dir=RESULTS_DIR,
                          conf_threshold=CONF_MIN, imgsz=IMGSZ,
                          use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI,
+                         target_classes=TARGET_CLASSES,
                          use_dip=USE_DIP, use_wavelet=USE_WAVELET):
     """Batch compares original vs verified detections on test images."""
     if not os.path.exists(images_dir):
@@ -211,7 +217,7 @@ def run_image_comparison(images_dir=DATA_IMAGES_DIR, output_dir=RESULTS_DIR,
     visualizer = Visualizer()
 
     image_files = sorted([f for f in os.listdir(images_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-    print(f"[Batch] Processing {len(image_files)} test images from {images_dir} (SAHI: {'ON' if use_sahi else 'OFF'})...")
+    print(f"[Batch] Processing {len(image_files)} test images from {images_dir} (SAHI: {'ON' if use_sahi else 'OFF'} | Classes: {target_classes})...")
 
     for idx, fname in enumerate(image_files, 1):
         fpath = os.path.join(images_dir, fname)
@@ -221,7 +227,8 @@ def run_image_comparison(images_dir=DATA_IMAGES_DIR, output_dir=RESULTS_DIR,
 
         raw_cands, person_boxes = detector.detect(
             frame, conf_threshold=conf_threshold, imgsz=imgsz,
-            use_zoom=use_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet
+            use_zoom=use_zoom, use_sahi=use_sahi, target_classes=target_classes,
+            use_dip=use_dip, use_wavelet=use_wavelet
         )
         verified_threats, is_confirmed = verifier.verify_candidates(raw_cands, frame)
 
@@ -241,11 +248,12 @@ if __name__ == "__main__":
     parser.add_argument("--conf", type=float, default=CONF_MIN, help="Confidence threshold")
     parser.add_argument("--sahi", action="store_true", default=USE_SAHI, help="Enable Targeted SAHI multi-tile slicing")
     parser.add_argument("--no-sahi", action="store_false", dest="sahi", help="Disable Targeted SAHI")
+    parser.add_argument("--classes", nargs="+", default=TARGET_CLASSES, help="Target threat classes to detect (default: Pistol Knife)")
     args = parser.parse_args()
 
     if args.mode == "camera":
-        run_camera(camera_index=args.camera, conf_threshold=args.conf, use_sahi=args.sahi)
+        run_camera(camera_index=args.camera, conf_threshold=args.conf, use_sahi=args.sahi, target_classes=args.classes)
     elif args.mode == "dual":
-        run_camera(camera_index=args.camera, conf_threshold=args.conf, use_sahi=args.sahi, start_dual_mode=True)
+        run_camera(camera_index=args.camera, conf_threshold=args.conf, use_sahi=args.sahi, target_classes=args.classes, start_dual_mode=True)
     else:
-        run_image_comparison(conf_threshold=args.conf, use_sahi=args.sahi)
+        run_image_comparison(conf_threshold=args.conf, use_sahi=args.sahi, target_classes=args.classes)

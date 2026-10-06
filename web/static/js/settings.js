@@ -152,6 +152,22 @@ async function loadSettings() {
       const sahiBox = document.getElementById('useSahi');
       if (sahiBox) sahiBox.checked = Boolean(cfg.USE_SAHI);
     }
+
+    // Render Target Threat Classes checkboxes
+    if (cfg.all_classes && document.getElementById('classesCheckboxContainer')) {
+      const container = document.getElementById('classesCheckboxContainer');
+      const targetList = (cfg.target_classes || []).map(c => c.toLowerCase());
+      container.innerHTML = cfg.all_classes.map(clsName => {
+        const isChecked = targetList.includes(clsName.toLowerCase());
+        const isDefaultWeapon = ['pistol', 'knife'].includes(clsName.toLowerCase());
+        return `
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 10px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid ${isChecked ? 'rgba(255, 82, 82, 0.4)' : 'rgba(255,255,255,0.06)'}; font-size: 0.8rem;">
+            <input type="checkbox" name="targetClass" value="${clsName}" ${isChecked ? 'checked' : ''} style="cursor: pointer;">
+            <span style="font-weight: 500; color: ${isDefaultWeapon ? '#ff5252' : '#ffffff'};">${clsName}</span>
+          </label>
+        `;
+      }).join('');
+    }
   } catch (err) {
     console.error("Error loading settings:", err);
   }
@@ -160,6 +176,8 @@ async function loadSettings() {
 async function saveSettings(event) {
   event.preventDefault();
 
+  const selectedClasses = Array.from(document.querySelectorAll('input[name="targetClass"]:checked')).map(cb => cb.value);
+
   const newSettings = {
     CONF_MIN: parseFloat(document.getElementById('confMin').value),
     CONF_HIGH: parseFloat(document.getElementById('confHigh').value),
@@ -167,7 +185,8 @@ async function saveSettings(event) {
     WEIGHT_SHAPE: parseFloat(document.getElementById('weightShape').value),
     WEIGHTED_SCORE_MIN: parseFloat(document.getElementById('scoreMin').value),
     FRAME_ACCUMULATION_MIN: parseInt(document.getElementById('frameAccum').value),
-    USE_SAHI: document.getElementById('useSahi') ? document.getElementById('useSahi').checked : true
+    USE_SAHI: document.getElementById('useSahi') ? document.getElementById('useSahi').checked : true,
+    target_classes: selectedClasses
   };
 
   try {

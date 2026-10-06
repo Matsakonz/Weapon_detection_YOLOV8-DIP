@@ -6,6 +6,7 @@ from config.settings import (
     IMGSZ,
     USE_HUMAN_ZOOM,
     USE_SAHI,
+    TARGET_CLASSES,
     HUMAN_MARGIN_X,
     HUMAN_MARGIN_Y,
     SAHI_TILE_SIZE,
@@ -87,6 +88,7 @@ class WeaponDetector:
 
     def detect(self, frame, conf_threshold=0.50, imgsz=IMGSZ,
                use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI,
+               target_classes=TARGET_CLASSES,
                margin_x=HUMAN_MARGIN_X, margin_y=HUMAN_MARGIN_Y,
                tile_size=SAHI_TILE_SIZE, overlap=SAHI_OVERLAP, nms_iou=SAHI_NMS_IOU,
                use_dip=USE_DIP, use_wavelet=USE_WAVELET):
@@ -184,6 +186,11 @@ class WeaponDetector:
                                 w_cls = int(wb.cls[0])
                                 w_conf = float(wb.conf[0])
                                 w_label = self.weapon_model.names[w_cls]
+
+                                # Filter by target threat classes (e.g. Pistol, Knife)
+                                if target_classes and w_label.lower() not in [c.lower() for c in target_classes]:
+                                    continue
+
                                 roi_crop = frame[gy1:gy2, gx1:gx2].copy()
 
                                 person_candidates.append({
@@ -227,6 +234,11 @@ class WeaponDetector:
                             w_cls = int(wb.cls[0])
                             w_conf = float(wb.conf[0])
                             w_label = self.weapon_model.names[w_cls]
+
+                            # Filter by target threat classes
+                            if target_classes and w_label.lower() not in [c.lower() for c in target_classes]:
+                                continue
+
                             roi_crop = frame[gy1:gy2, gx1:gx2].copy()
 
                             raw_candidates.append({
@@ -249,6 +261,11 @@ class WeaponDetector:
             w_cls = int(wb.cls[0])
             w_conf = float(wb.conf[0])
             w_label = self.weapon_model.names[w_cls]
+
+            # Filter by target threat classes
+            if target_classes and w_label.lower() not in [c.lower() for c in target_classes]:
+                continue
+
             roi_crop = frame[gy1:gy2, gx1:gx2].copy()
 
             raw_candidates.append({
