@@ -13,13 +13,13 @@ from config.settings import CAMERA_INDEX, CONF_MIN, IMGSZ
 
 # Backward-compatible function aliases
 def open_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
-                use_human_zoom=True, use_dip=True, use_wavelet=True, **kwargs):
+                use_human_zoom=True, use_sahi=True, use_dip=True, use_wavelet=True, **kwargs):
     run_camera(camera_index=camera_index, conf_threshold=conf_threshold, imgsz=imgsz,
-               use_zoom=use_human_zoom, use_dip=use_dip, use_wavelet=use_wavelet)
+               use_zoom=use_human_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet)
 
-def compare_all_images(conf_threshold=CONF_MIN, imgsz=IMGSZ, use_human_zoom=True, use_dip=True, use_wavelet=True, **kwargs):
+def compare_all_images(conf_threshold=CONF_MIN, imgsz=IMGSZ, use_human_zoom=True, use_sahi=True, use_dip=True, use_wavelet=True, **kwargs):
     run_image_comparison(conf_threshold=conf_threshold, imgsz=imgsz,
-                         use_zoom=use_human_zoom, use_dip=use_dip, use_wavelet=use_wavelet)
+                         use_zoom=use_human_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet)
 
 detect_from_camera = open_camera
 

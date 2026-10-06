@@ -29,6 +29,12 @@ DASHBOARD_ACTIVE = False      # Dashboard / monitoring armed status
 # DIP & Camera Settings
 IMGSZ = 1280
 USE_HUMAN_ZOOM = True
+USE_SAHI = True                # Targeted Human SAHI (Multi-tile Slicing)
+HUMAN_MARGIN_X = 0.35          # +35% margin around person to capture extended arms/aiming
+HUMAN_MARGIN_Y = 0.25          # +25% vertical margin for raised hands & dropped weapons
+SAHI_TILE_SIZE = 640           # Tile resolution for sliced inference
+SAHI_OVERLAP = 0.25            # 25% overlap between adjacent tiles
+SAHI_NMS_IOU = 0.45            # IoU threshold to deduplicate detections across tiles
 USE_DIP = True
 USE_WAVELET = True
 CAMERA_INDEX = 0

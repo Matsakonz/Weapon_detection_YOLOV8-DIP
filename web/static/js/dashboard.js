@@ -222,6 +222,9 @@ async function toggleFeature(feature) {
 
     if (feature === 'zoom') {
       document.getElementById('btnToggleZoom').innerText = `Zoom: ${data.state ? 'ON' : 'OFF'}`;
+    } else if (feature === 'sahi') {
+      const btn = document.getElementById('btnToggleSahi');
+      if (btn) btn.innerText = `SAHI: ${data.state ? 'ON' : 'OFF'}`;
     } else if (feature === 'dip') {
       document.getElementById('btnToggleDip').innerText = `DIP: ${data.state ? 'ON' : 'OFF'}`;
     } else if (feature === 'wavelet') {

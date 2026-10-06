@@ -148,6 +148,10 @@ async function loadSettings() {
       document.getElementById('frameAccum').value = cfg.FRAME_ACCUMULATION_MIN;
       updateVal('valFrameAccum', cfg.FRAME_ACCUMULATION_MIN + ' Frames');
     }
+    if (cfg.USE_SAHI !== undefined) {
+      const sahiBox = document.getElementById('useSahi');
+      if (sahiBox) sahiBox.checked = Boolean(cfg.USE_SAHI);
+    }
   } catch (err) {
     console.error("Error loading settings:", err);
   }
@@ -162,7 +166,8 @@ async function saveSettings(event) {
     WEIGHT_AI: parseFloat(document.getElementById('weightAi').value),
     WEIGHT_SHAPE: parseFloat(document.getElementById('weightShape').value),
     WEIGHTED_SCORE_MIN: parseFloat(document.getElementById('scoreMin').value),
-    FRAME_ACCUMULATION_MIN: parseInt(document.getElementById('frameAccum').value)
+    FRAME_ACCUMULATION_MIN: parseInt(document.getElementById('frameAccum').value),
+    USE_SAHI: document.getElementById('useSahi') ? document.getElementById('useSahi').checked : true
   };
 
   try {

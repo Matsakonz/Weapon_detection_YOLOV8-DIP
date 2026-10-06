@@ -19,6 +19,7 @@ from config.settings import (
     CONF_MIN,
     IMGSZ,
     USE_HUMAN_ZOOM,
+    USE_SAHI,
     USE_DIP,
     USE_WAVELET
 )
@@ -48,12 +49,13 @@ def open_cap(camera_idx, resolution=CAMERA_RESOLUTION):
     return cap
 
 def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
-               use_zoom=USE_HUMAN_ZOOM, use_dip=USE_DIP, use_wavelet=USE_WAVELET,
+               use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI, use_dip=USE_DIP, use_wavelet=USE_WAVELET,
                start_dual_mode=False):
     """
     Executes live detection with Multi-Camera support:
     - Dynamic switching between cameras with 'k' or '0', '1'...
     - Dual-Camera split-screen grid view with 'g'
+    - Targeted SAHI Multi-Tile Slicing on human crop with 't'
     - Full Flowchart Verification Pipeline (DIP, Zoom, Confidence, Shape, Accumulation, Alerts)
     """
     available_cams = scan_available_cameras()
@@ -80,7 +82,7 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
     actual_h = int(cap_primary.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[Camera] Active Camera {active_cam_idx}: {actual_w}x{actual_h} | Base Conf: {conf_threshold} | imgsz: {imgsz}")
 
-    window_name = "Threat Detection System ('k':switch cam | 'g':dual-cam | 'd':DIP | 'w':wavelet | 'z':zoom | 's':snap | 'q':quit)"
+    window_name = "Threat Detection System ('k':cam | 'g':dual | 't':SAHI | 'd':DIP | 'w':wavelet | 'z':zoom | 's':snap | 'q':quit)"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window_name, WINDOW_SIZE[0], WINDOW_SIZE[1])
 
@@ -101,14 +103,14 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
             # 1. Detection on Primary Camera
             raw_cands1, person_boxes1 = detector.detect(
                 frame1, conf_threshold=conf_threshold, imgsz=imgsz,
-                use_zoom=use_zoom, use_dip=use_dip, use_wavelet=use_wavelet
+                use_zoom=use_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet
             )
             verified1, is_confirmed1 = verifier.verify_candidates(raw_cands1, frame1)
 
             cam_tag = f"CAM {active_cam_idx}"
             hud_info1 = (
                 f"[{cam_tag}] FPS: {fps:.1f} | Threats: {len(verified1)} | Persons: {len(person_boxes1)} | "
-                f"Zoom: {'ON' if use_zoom else 'OFF'} | DIP: {'ON' if use_dip else 'OFF'}"
+                f"SAHI: {'ON' if use_sahi else 'OFF'} | Zoom: {'ON' if use_zoom else 'OFF'} | DIP: {'ON' if use_dip else 'OFF'}"
             )
             annotated1 = visualizer.render_overlay(frame1, person_boxes1, verified1, is_confirmed1, hud_info1)
 
@@ -118,7 +120,7 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
                 if ret2:
                     raw_cands2, person_boxes2 = detector.detect(
                         frame2, conf_threshold=conf_threshold, imgsz=imgsz,
-                        use_zoom=use_zoom, use_dip=use_dip, use_wavelet=use_wavelet
+                        use_zoom=use_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet
                     )
                     verified2, is_confirmed2 = verifier.verify_candidates(raw_cands2, frame2)
                     sec_idx = available_cams[1] if active_cam_idx == available_cams[0] else available_cams[0]
@@ -180,6 +182,9 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
             elif key == ord('z'):
                 use_zoom = not use_zoom
                 print(f"[Human-Zoom] Toggled: {'ON' if use_zoom else 'OFF'}")
+            elif key == ord('t'):
+                use_sahi = not use_sahi
+                print(f"[Targeted SAHI] Toggled: {'ON' if use_sahi else 'OFF'}")
             elif key == ord('c'):
                 side_by_side = not side_by_side
                 print(f"[Side-by-Side] Toggled: {'ON' if side_by_side else 'OFF'}")
@@ -195,7 +200,8 @@ def run_camera(camera_index=CAMERA_INDEX, conf_threshold=CONF_MIN, imgsz=IMGSZ,
 
 def run_image_comparison(images_dir=DATA_IMAGES_DIR, output_dir=RESULTS_DIR,
                          conf_threshold=CONF_MIN, imgsz=IMGSZ,
-                         use_zoom=USE_HUMAN_ZOOM, use_dip=USE_DIP, use_wavelet=USE_WAVELET):
+                         use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI,
+                         use_dip=USE_DIP, use_wavelet=USE_WAVELET):
     """Batch compares original vs verified detections on test images."""
     if not os.path.exists(images_dir):
         images_dir = os.path.join(os.path.dirname(__file__))
@@ -205,7 +211,7 @@ def run_image_comparison(images_dir=DATA_IMAGES_DIR, output_dir=RESULTS_DIR,
     visualizer = Visualizer()
 
     image_files = sorted([f for f in os.listdir(images_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-    print(f"[Batch] Processing {len(image_files)} test images from {images_dir}...")
+    print(f"[Batch] Processing {len(image_files)} test images from {images_dir} (SAHI: {'ON' if use_sahi else 'OFF'})...")
 
     for idx, fname in enumerate(image_files, 1):
         fpath = os.path.join(images_dir, fname)
@@ -215,7 +221,7 @@ def run_image_comparison(images_dir=DATA_IMAGES_DIR, output_dir=RESULTS_DIR,
 
         raw_cands, person_boxes = detector.detect(
             frame, conf_threshold=conf_threshold, imgsz=imgsz,
-            use_zoom=use_zoom, use_dip=use_dip, use_wavelet=use_wavelet
+            use_zoom=use_zoom, use_sahi=use_sahi, use_dip=use_dip, use_wavelet=use_wavelet
         )
         verified_threats, is_confirmed = verifier.verify_candidates(raw_cands, frame)
 
@@ -233,11 +239,13 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["camera", "compare", "dual"], default="camera", help="Run mode (camera, compare, dual)")
     parser.add_argument("--camera", type=int, default=CAMERA_INDEX, help="Default camera index")
     parser.add_argument("--conf", type=float, default=CONF_MIN, help="Confidence threshold")
+    parser.add_argument("--sahi", action="store_true", default=USE_SAHI, help="Enable Targeted SAHI multi-tile slicing")
+    parser.add_argument("--no-sahi", action="store_false", dest="sahi", help="Disable Targeted SAHI")
     args = parser.parse_args()
 
     if args.mode == "camera":
-        run_camera(camera_index=args.camera, conf_threshold=args.conf)
+        run_camera(camera_index=args.camera, conf_threshold=args.conf, use_sahi=args.sahi)
     elif args.mode == "dual":
-        run_camera(camera_index=args.camera, conf_threshold=args.conf, start_dual_mode=True)
+        run_camera(camera_index=args.camera, conf_threshold=args.conf, use_sahi=args.sahi, start_dual_mode=True)
     else:
-        run_image_comparison(conf_threshold=args.conf)
+        run_image_comparison(conf_threshold=args.conf, use_sahi=args.sahi)

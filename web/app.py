@@ -23,6 +23,7 @@ from config.settings import (
     DASHBOARD_ACTIVE,
     IMGSZ,
     USE_HUMAN_ZOOM,
+    USE_SAHI,
     USE_DIP,
     USE_WAVELET
 )
@@ -45,6 +46,7 @@ state = {
     "frame_accum_min": FRAME_ACCUMULATION_MIN,
     "dashboard_active": True,
     "use_zoom": USE_HUMAN_ZOOM,
+    "use_sahi": USE_SAHI,
     "use_dip": USE_DIP,
     "use_wavelet": USE_WAVELET,
     "active_camera_id": "cam_1",
@@ -145,7 +147,8 @@ class CameraStreamWorker:
             with model_lock:
                 raw_cands, person_boxes = detector.detect(
                     frame_to_process, conf_threshold=state["conf_min"], imgsz=IMGSZ,
-                    use_zoom=state["use_zoom"], use_dip=state["use_dip"], use_wavelet=state["use_wavelet"]
+                    use_zoom=state["use_zoom"], use_sahi=state["use_sahi"],
+                    use_dip=state["use_dip"], use_wavelet=state["use_wavelet"]
                 )
 
                 verifier.dashboard_active = state["dashboard_active"]
@@ -409,6 +412,9 @@ def get_status():
         "has_threat": det.get("has_threat", False),
         "threat_label": state["threat_label"],
         "view_mode": state.get("view_mode", "auto"),
+        "use_sahi": state["use_sahi"],
+        "use_zoom": state["use_zoom"],
+        "use_dip": state["use_dip"],
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "recent_events": state["recent_events"][:10]
     })
@@ -429,7 +435,8 @@ def get_settings():
         "WEIGHT_SHAPE": state["weight_shape"],
         "WEIGHTED_SCORE_MIN": state["weighted_score_min"],
         "FRAME_ACCUMULATION_MIN": state["frame_accum_min"],
-        "DASHBOARD_ACTIVE": state["dashboard_active"]
+        "DASHBOARD_ACTIVE": state["dashboard_active"],
+        "USE_SAHI": state["use_sahi"]
     })
 
 @app.route('/api/settings', methods=['POST'])
@@ -441,6 +448,7 @@ def save_settings():
     if "WEIGHT_SHAPE" in data: state["weight_shape"] = float(data["WEIGHT_SHAPE"])
     if "WEIGHTED_SCORE_MIN" in data: state["weighted_score_min"] = float(data["WEIGHTED_SCORE_MIN"])
     if "FRAME_ACCUMULATION_MIN" in data: state["frame_accum_min"] = int(data["FRAME_ACCUMULATION_MIN"])
+    if "USE_SAHI" in data: state["use_sahi"] = bool(data["USE_SAHI"])
     return jsonify({"success": True})
 
 @app.route('/api/toggle/<feature>', methods=['POST'])
@@ -448,6 +456,9 @@ def toggle_feature(feature):
     if feature == 'zoom':
         state['use_zoom'] = not state['use_zoom']
         return jsonify({"feature": "zoom", "state": state['use_zoom']})
+    elif feature == 'sahi':
+        state['use_sahi'] = not state['use_sahi']
+        return jsonify({"feature": "sahi", "state": state['use_sahi']})
     elif feature == 'dip':
         state['use_dip'] = not state['use_dip']
         return jsonify({"feature": "dip", "state": state['use_dip']})

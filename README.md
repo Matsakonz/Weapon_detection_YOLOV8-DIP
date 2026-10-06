@@ -72,9 +72,10 @@ The system is designed with a **False-Positive Rejection Architecture** to ensur
 [Raw Camera Frame]
         │
         ▼
-[Stage 1: Human-Zoom Detection]
+[Stage 1: Human-Guided Targeted SAHI]
    ├── Detects humans using yolov8n.pt (conf >= 0.35)
-   ├── Expands bounding box by +20% horizontal / +15% vertical margin (capturing hands & weapon grip)
+   ├── Expands bounding box by +35% horizontal / +25% vertical margin (capturing outstretched aiming arms & waist)
+   ├── Adaptive Slicing: Slices human ROI into overlapping high-res tiles (640px) at 1:1 native camera resolution
    ├── Upscales small crops using Bicubic Super-sampling (min dimension >= 640px)
    └── (Fallback: Full frame processed directly if no human is present)
         │
@@ -207,22 +208,28 @@ Evaluates geometric properties on candidate weapon crops to distinguish actual w
 
 ---
 
-### 3. Weapon Detection & Human-Zoom ([`src/detection/detector.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/detection/detector.py))
+### 3. Weapon Detection & Targeted SAHI ([`src/detection/detector.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/detection/detector.py))
 
-Combines person detection with high-resolution weapon inference.
+Combines person detection, generous safety margins, multi-tile slicing (SAHI), and high-resolution weapon inference.
 
-#### Class `WeaponDetector`
-* **`__init__(weapon_model_path, person_model_path)`**:
+#### Key Functions & Class `WeaponDetector`
+* **`generate_slices(img_w, img_h, tile_size=640, overlap_ratio=0.25)`**:
+  * Calculates sliding window tile coordinates across the expanded human crop with 25% overlap to ensure weapons straddling slice borders are never cut in half.
+* **`apply_nms(candidates, iou_threshold=0.45)`**:
+  * Merges duplicate weapon candidate detections produced by overlapping tiles using OpenCV NMS (`cv2.dnn.NMSBoxes`).
+* **`WeaponDetector.__init__(weapon_model_path, person_model_path)`**:
   * Loads YOLO weapon model (`best.pt`) and person detection model (`yolov8n.pt`).
-* **`detect(frame, conf_threshold=0.50, imgsz=1280, use_zoom=True, use_dip=True, use_wavelet=True)`**:
+* **`WeaponDetector.detect(frame, conf_threshold=0.50, imgsz=1280, use_zoom=True, use_sahi=True, ...)`**:
   * **How It Works**:
-    1. If `use_zoom=True`, runs `person_model` on `frame` (`classes=[0]`, `conf=0.35`).
-    2. For each detected human, expands the box by $20\%$ horizontal and $15\%$ vertical margins to ensure hands, holsters, and raised arms are captured.
-    3. **Bicubic Super-Sampling**: If the crop dimensions are smaller than $640\text{px}$, upscales the crop using `cv2.INTER_CUBIC` to increase pixel density.
-    4. Enhances the crop with `apply_dip_enhancement`.
-    5. Runs `weapon_model` on the enhanced crop at high resolution (`imgsz=1280`).
-    6. **Coordinate Translation**: Converts coordinates back from the scaled crop coordinate system to the original full-frame resolution.
-    7. **Fallback**: If no humans are detected or `use_zoom=False`, runs weapon inference directly on the full frame.
+    1. Runs person detector (`yolov8n.pt`, `conf=0.35`) across the full frame.
+    2. **Generous Safety Margins**: Expands person bounding boxes by **+35% horizontal margin** and **+25% vertical margin**, guaranteeing extended arms aiming guns, waist holsters, and dropped weapons near feet are captured.
+    3. **Targeted SAHI Slicing**:
+       * If the crop is large (tall or close person), slices into overlapping 640px tiles at **1:1 native camera resolution**, preserving microscopic pixel details of handguns and knives without downsampling.
+       * If the crop is small/distant ($<640\text{px}$), upscales using **Bicubic Super-Sampling** (`cv2.INTER_CUBIC`).
+    4. Applies DIP enhancement (`apply_dip_enhancement`) per tile.
+    5. Runs weapon model on each tile.
+    6. **Coordinate Translation & Sliced NMS**: Remaps tile detections to crop coordinates, then to full 1080p frame coordinates, and deduplicates overlap artifacts via NMS.
+    7. **Fallback**: Runs inference on the full frame if no humans are detected or if zoom is disabled.
   * **Returns**:
     * `raw_candidates` (`list[dict]`): List of candidate dictionaries with keys `box` $(x_1, y_1, x_2, y_2)$, `cls`, `label`, `conf`, and `roi` image.
     * `person_boxes` (`list[tuple]`): List of $(px_1, py_1, px_2, py_2, p\_conf)$.
@@ -385,7 +392,13 @@ Flask-based web interface featuring decoupled camera ingestion, multi-camera gri
 | `FRAME_ACCUMULATION_MIN` | `4` | Number of consecutive positive frames required to confirm a threat. |
 | `DASHBOARD_ACTIVE` | `False` | Default monitoring armed status in CLI mode. |
 | `IMGSZ` | `1280` | YOLO inference input image resolution. |
-| `USE_HUMAN_ZOOM` | `True` | Enables person detection crop and super-sampling around hands. |
+| `USE_HUMAN_ZOOM` | `True` | Enables person detection crop and ROI zooming. |
+| `USE_SAHI` | `True` | Enables Targeted SAHI (Multi-tile Slicing) on human crops. |
+| `HUMAN_MARGIN_X` | `0.35` | +35% horizontal safety margin around person (captures extended arms & aiming). |
+| `HUMAN_MARGIN_Y` | `0.25` | +25% vertical safety margin around person (captures raised hands & dropped guns). |
+| `SAHI_TILE_SIZE` | `640` | Tile resolution for sliced inference (native 1:1 camera pixel scale). |
+| `SAHI_OVERLAP` | `0.25` | 25% overlap between adjacent tiles to prevent seam clipping. |
+| `SAHI_NMS_IOU` | `0.45` | IoU threshold for OpenCV NMS to deduplicate overlapping slice detections. |
 | `USE_DIP` | `True` | Enables CLAHE and Unsharp Masking pipeline. |
 | `USE_WAVELET` | `True` | Enables 2D Wavelet DWT luminance subband boosting. |
 | `CAMERA_INDEX` | `0` | Default hardware camera device index. |
@@ -457,6 +470,7 @@ When running `main.py` in desktop camera mode, use the following interactive hot
 | **`k`** or **`TAB`** | **Switch Camera**: Cycles to the next connected camera on the fly |
 | **`0`** / **`1`** / **`2`** | **Direct Switch**: Switches directly to camera index 0, 1, or 2 |
 | **`g`** | **Dual-Camera Grid**: Toggles split-screen streaming for two cameras |
+| **`t`** | **Toggle Targeted SAHI**: Toggles multi-tile slicing on human crop ON / OFF |
 | **`d`** | **Toggle DIP**: Toggles CLAHE + Unsharp Masking ON / OFF |
 | **`w`** | **Toggle Wavelet**: Toggles 2D Wavelet DWT edge boosting ON / OFF |
 | **`z`** | **Toggle Human-Zoom**: Toggles person ROI cropping & super-sampling ON / OFF |
