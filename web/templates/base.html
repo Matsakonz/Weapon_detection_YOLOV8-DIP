@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Aegis Threat Guard - Surveillance{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚪</text></svg>">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <h1>AEGIS <span class="subbrand">THREAT GUARD</span></h1>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="main-nav">
+      <a href="/" class="{% if active_page == 'camera' %}active{% endif %}">
+        Cameras
+      </a>
+      <a href="/settings" class="{% if active_page == 'settings' %}active{% endif %}">
+        Settings
+      </a>
+    </nav>
+
+    <!-- Header Status -->
+    <div class="header-status">
+      <div class="live-indicator">
+        <div class="pulse-dot"></div>
+        <span>ARMED</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Body Content -->
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Audio Chime for Threat Alert -->
+  <audio id="alertSound" preload="auto">
+    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
+  </audio>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

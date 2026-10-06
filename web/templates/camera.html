@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Live Camera Monitoring - Aegis Threat Guard{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+  <!-- Left Side: Live Video Stream & Grid -->
+  <div class="video-card">
+    <div class="video-header">
+      <div class="camera-selector-container">
+        <!-- Watch All Button -->
+        <button class="cam-btn btn-watch-all" id="btnWatchAll" onclick="watchAllCameras()">
+          <span>⊞</span> Watch All Cameras
+        </button>
+        <div class="header-divider"></div>
+        <div class="camera-selector" id="cameraSelector">
+          <!-- Populated via JS -->
+        </div>
+      </div>
+      <div>
+        <a href="/settings" class="btn-secondary" style="padding: 5px 12px; font-size: 0.78rem;">
+          ⚙ Settings
+        </a>
+      </div>
+    </div>
+
+    <!-- Single Camera View Stage -->
+    <div class="video-wrapper" id="singleViewWrapper">
+      <div class="alarm-banner" id="alarmBanner">
+        <span>⚠</span>
+        <span id="alarmText">WARNING: THREAT CONFIRMED</span>
+      </div>
+      <img id="liveStream" src="/video_feed" alt="Live Camera Video Stream">
+    </div>
+
+    <!-- Multi-Camera Grid Stage ("Watch All Cameras") -->
+    <div class="grid-wrapper" id="gridViewWrapper" style="display: none;">
+      <div class="cameras-grid" id="camerasGrid">
+        <!-- Populated via JS -->
+      </div>
+    </div>
+
+    <!-- Video Controls & HUD -->
+    <div class="video-controls">
+      <div class="pill-group">
+        <span class="hud-pill highlight" id="hudCamera">FEED: ACTIVE</span>
+        <span class="hud-pill" id="hudMode">MODE: ORIGINAL CAM</span>
+        <span class="hud-pill" id="hudFps">FPS: --</span>
+        <span class="hud-pill" id="hudTimestamp">TIME: --:--:--</span>
+      </div>
+
+      <div class="pill-group">
+        <button class="cam-btn" id="btnViewModeSwitch" onclick="cycleViewMode()" title="Switch Camera View Mode">VIEW: AUTO</button>
+        <button class="cam-btn" id="btnToggleZoom" onclick="toggleFeature('zoom')">Zoom: ON</button>
+        <button class="cam-btn" id="btnToggleDip" onclick="toggleFeature('dip')">DIP: ON</button>
+        <button class="cam-btn" id="btnToggleWavelet" onclick="toggleFeature('wavelet')">Wavelet: ON</button>
+        <button class="btn-primary" onclick="takeSnapshot()">📸 Snapshot</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Side: Intelligence & Incident Panel -->
+  <div class="sidebar">
+    <!-- Quick Analytics -->
+    <div class="panel-card">
+      <h3>Live Verification</h3>
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="stat-label">Active Threats</div>
+          <div class="stat-val alert" id="statThreats">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Persons In View</div>
+          <div class="stat-val" id="statPersons">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Confidence Gate</div>
+          <div class="stat-val" id="statConfidence" style="font-size: 1.05rem;">≥ 60%</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Frame Accum.</div>
+          <div class="stat-val" id="statFrames" style="font-size: 1.05rem;">4 Hits</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Threat Incident Log -->
+    <div class="panel-card" style="flex: 1;">
+      <h3>
+        Threat Log
+        <span class="count-badge" id="eventCount">0 events</span>
+      </h3>
+      <div class="event-list" id="eventList">
+        <div class="empty-state">
+          No threat incidents recorded yet.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}
