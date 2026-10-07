@@ -113,17 +113,161 @@ async function deleteCamera(camId, name) {
   }
 }
 
-// 5. Load & Save Settings
+// 5. Load & Save Settings & Model Selection
+let availableModels = [];
+let currentActiveModel = "";
+
 function updateVal(elementId, val, isPercent = false) {
   const display = isPercent ? `${Math.round(parseFloat(val) * 100)}%` : val;
-  document.getElementById(elementId).innerText = display;
+  const el = document.getElementById(elementId);
+  if (el) el.innerText = display;
+}
+
+// Model Manager Functions
+async function loadModelsList(selectedToHighlight = null) {
+  try {
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    availableModels = data.models || [];
+    currentActiveModel = data.active_model || (availableModels[0] ? availableModels[0].name : "");
+
+    const selectEl = document.getElementById('modelSelect');
+    const activeBadge = document.getElementById('activeModelBadge');
+    const infoText = document.getElementById('modelInfoText');
+
+    if (infoText) {
+      infoText.innerText = `${availableModels.length} model(s) available in models/`;
+    }
+
+    if (activeBadge) {
+      activeBadge.innerText = `Active: ${currentActiveModel}`;
+      activeBadge.style.background = 'rgba(76, 175, 80, 0.15)';
+      activeBadge.style.borderColor = 'rgba(76, 175, 80, 0.4)';
+      activeBadge.style.color = '#81c784';
+    }
+
+    if (selectEl) {
+      const targetModel = selectedToHighlight || currentActiveModel;
+      selectEl.innerHTML = availableModels.map(m => {
+        const isSel = (m.name === targetModel);
+        return `<option value="${m.name}" ${isSel ? 'selected' : ''}>${m.name} (${m.size_mb} MB — ${m.classes.length} classes)</option>`;
+      }).join('');
+
+      onModelSelectionChange(targetModel);
+    }
+  } catch (err) {
+    console.error("Error loading models:", err);
+  }
+}
+
+function onModelSelectionChange(modelName) {
+  const model = availableModels.find(m => m.name === modelName);
+  const sizeBadge = document.getElementById('modelSizeBadge');
+  const previewContainer = document.getElementById('modelClassesPreview');
+
+  if (!model) {
+    if (sizeBadge) sizeBadge.innerText = '';
+    if (previewContainer) previewContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">No model details available.</span>';
+    return;
+  }
+
+  if (sizeBadge) {
+    const isActive = (model.name === currentActiveModel);
+    sizeBadge.innerHTML = `<span style="color: ${isActive ? '#81c784' : 'var(--text-secondary)'}; font-weight: 600;">${isActive ? '● CURRENTLY LOADED' : '○ READY TO LOAD'}</span> &nbsp;|&nbsp; ${model.size_mb} MB &nbsp;|&nbsp; ${model.classes.length} detected class(es)`;
+  }
+
+  if (previewContainer) {
+    if (!model.classes || model.classes.length === 0) {
+      previewContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">No class metadata found in model.</span>';
+    } else {
+      const threatKeywords = ['pistol', 'knife', 'gun', 'rifle', 'weapon', 'blade', 'dagger', 'sword', 'handgun', 'firearm', 'armed'];
+      previewContainer.innerHTML = model.classes.map(cls => {
+        const isThreat = threatKeywords.some(k => cls.toLowerCase().includes(k));
+        return `
+          <span style="font-family: var(--font-mono); font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; background: ${isThreat ? 'rgba(255, 82, 82, 0.15)' : 'rgba(255, 255, 255, 0.05)'}; color: ${isThreat ? '#ff5252' : '#cccccc'}; border: 1px solid ${isThreat ? 'rgba(255, 82, 82, 0.3)' : 'rgba(255, 255, 255, 0.1)'};">
+            ${cls}
+          </span>
+        `;
+      }).join('');
+    }
+  }
+}
+
+async function applyModelSelection() {
+  const selectEl = document.getElementById('modelSelect');
+  if (!selectEl) return;
+  const selectedModel = selectEl.value;
+
+  const btn = document.getElementById('btnApplyModel');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Loading Model...';
+  }
+
+  try {
+    const res = await fetch('/api/models/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: selectedModel })
+    });
+    const result = await res.json();
+
+    if (result.success) {
+      currentActiveModel = result.active_model;
+      const activeBadge = document.getElementById('activeModelBadge');
+      if (activeBadge) {
+        activeBadge.innerText = `Active: ${currentActiveModel}`;
+      }
+      onModelSelectionChange(currentActiveModel);
+
+      // Refresh target threat class filter checkboxes for new model
+      renderTargetClasses(result.all_classes, result.target_classes);
+
+      alert(`Model "${currentActiveModel}" successfully loaded and active in the live detection pipeline!`);
+    } else {
+      alert(`Error loading model: ${result.message}`);
+    }
+  } catch (err) {
+    console.error("Error switching model:", err);
+    alert("Failed to switch model.");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = '⚡ Switch Model';
+    }
+  }
+}
+
+function renderTargetClasses(all_classes, target_classes) {
+  const container = document.getElementById('classesCheckboxContainer');
+  if (!container || !all_classes) return;
+
+  const targetList = (target_classes || []).map(c => c.toLowerCase());
+  const threatKeywords = ['pistol', 'knife', 'gun', 'rifle', 'weapon', 'blade', 'dagger', 'sword', 'handgun', 'firearm', 'armed'];
+
+  container.innerHTML = all_classes.map(clsName => {
+    const isChecked = targetList.includes(clsName.toLowerCase());
+    const isDefaultWeapon = threatKeywords.some(k => clsName.toLowerCase().includes(k));
+    return `
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 10px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid ${isChecked ? 'rgba(255, 82, 82, 0.4)' : 'rgba(255,255,255,0.06)'}; font-size: 0.8rem;">
+        <input type="checkbox" name="targetClass" value="${clsName}" ${isChecked ? 'checked' : ''} style="cursor: pointer;">
+        <span style="font-weight: 500; color: ${isDefaultWeapon ? '#ff5252' : '#ffffff'};">${clsName}</span>
+      </label>
+    `;
+  }).join('');
 }
 
 async function loadSettings() {
   try {
+    await loadModelsList();
+
     const res = await fetch('/api/settings');
     const cfg = await res.json();
 
+    if (cfg.model_weapon && document.getElementById('modelSelect')) {
+      document.getElementById('modelSelect').value = cfg.model_weapon;
+      onModelSelectionChange(cfg.model_weapon);
+    }
     if (cfg.CONF_MIN !== undefined) {
       document.getElementById('confMin').value = cfg.CONF_MIN;
       updateVal('valConfMin', cfg.CONF_MIN, true);
@@ -154,19 +298,8 @@ async function loadSettings() {
     }
 
     // Render Target Threat Classes checkboxes
-    if (cfg.all_classes && document.getElementById('classesCheckboxContainer')) {
-      const container = document.getElementById('classesCheckboxContainer');
-      const targetList = (cfg.target_classes || []).map(c => c.toLowerCase());
-      container.innerHTML = cfg.all_classes.map(clsName => {
-        const isChecked = targetList.includes(clsName.toLowerCase());
-        const isDefaultWeapon = ['pistol', 'knife'].includes(clsName.toLowerCase());
-        return `
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 10px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid ${isChecked ? 'rgba(255, 82, 82, 0.4)' : 'rgba(255,255,255,0.06)'}; font-size: 0.8rem;">
-            <input type="checkbox" name="targetClass" value="${clsName}" ${isChecked ? 'checked' : ''} style="cursor: pointer;">
-            <span style="font-weight: 500; color: ${isDefaultWeapon ? '#ff5252' : '#ffffff'};">${clsName}</span>
-          </label>
-        `;
-      }).join('');
+    if (cfg.all_classes) {
+      renderTargetClasses(cfg.all_classes, cfg.target_classes);
     }
   } catch (err) {
     console.error("Error loading settings:", err);
@@ -177,8 +310,10 @@ async function saveSettings(event) {
   event.preventDefault();
 
   const selectedClasses = Array.from(document.querySelectorAll('input[name="targetClass"]:checked')).map(cb => cb.value);
+  const selectedModel = document.getElementById('modelSelect') ? document.getElementById('modelSelect').value : null;
 
   const newSettings = {
+    model_weapon: selectedModel,
     CONF_MIN: parseFloat(document.getElementById('confMin').value),
     CONF_HIGH: parseFloat(document.getElementById('confHigh').value),
     WEIGHT_AI: parseFloat(document.getElementById('weightAi').value),
@@ -197,6 +332,15 @@ async function saveSettings(event) {
     });
     const result = await res.json();
     if (result.success) {
+      if (result.model_weapon) {
+        currentActiveModel = result.model_weapon;
+        const activeBadge = document.getElementById('activeModelBadge');
+        if (activeBadge) activeBadge.innerText = `Active: ${currentActiveModel}`;
+        onModelSelectionChange(currentActiveModel);
+      }
+      if (result.all_classes && result.target_classes) {
+        renderTargetClasses(result.all_classes, result.target_classes);
+      }
       alert("Settings saved successfully and applied to active detection pipeline!");
     }
   } catch (err) {

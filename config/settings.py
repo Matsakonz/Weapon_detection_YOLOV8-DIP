@@ -3,12 +3,37 @@ import os
 # Project root directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Model paths (fallback to root if not found in models/)
-MODEL_WEAPON = os.path.join(BASE_DIR, "models", "best.pt")
-if not os.path.exists(MODEL_WEAPON):
-    MODEL_WEAPON = os.path.join(BASE_DIR, "best.pt")
+# Model directories & helper
+MODELS_DIR = os.path.join(BASE_DIR, "models")
 
-MODEL_PERSON = os.path.join(BASE_DIR, "models", "yolov8n.pt")
+def get_available_models():
+    """Lists all .pt model files found in the models/ folder."""
+    if not os.path.exists(MODELS_DIR):
+        return []
+    return sorted([f for f in os.listdir(MODELS_DIR) if f.endswith(".pt") and not f.startswith(".")])
+
+def resolve_model_path(model_filename=None):
+    """Resolves absolute path for a model file in models/ or project root."""
+    if model_filename:
+        path = os.path.join(MODELS_DIR, model_filename)
+        if os.path.exists(path):
+            return path
+        fallback = os.path.join(BASE_DIR, model_filename)
+        if os.path.exists(fallback):
+            return fallback
+
+    available = get_available_models()
+    if available:
+        for preferred in ("best4.pt", "best.pt", "best2.pt", "best3.pt"):
+            if preferred in available:
+                return os.path.join(MODELS_DIR, preferred)
+        return os.path.join(MODELS_DIR, available[0])
+    return os.path.join(MODELS_DIR, "best4.pt")
+
+# Model paths
+MODEL_WEAPON = resolve_model_path()
+
+MODEL_PERSON = os.path.join(MODELS_DIR, "yolov8n.pt")
 if not os.path.exists(MODEL_PERSON):
     MODEL_PERSON = os.path.join(BASE_DIR, "yolov8n.pt")
 
@@ -52,3 +77,56 @@ MQTT_ENABLED = True
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "security/threats"
+
+# Runtime Shared Settings File (Synchronizes main.py and Web Dashboard)
+import json
+
+RUNTIME_SETTINGS_FILE = os.path.join(BASE_DIR, "config", "runtime_settings.json")
+
+def get_default_settings():
+    available = get_available_models()
+    default_model = "best4.pt" if "best4.pt" in available else (available[0] if available else "best.pt")
+    return {
+        "model_weapon": default_model,
+        "conf_min": CONF_MIN,
+        "conf_high": CONF_HIGH,
+        "weight_ai": WEIGHT_AI,
+        "weight_shape": WEIGHT_SHAPE,
+        "weighted_score_min": WEIGHTED_SCORE_MIN,
+        "frame_accum_min": FRAME_ACCUMULATION_MIN,
+        "dashboard_active": DASHBOARD_ACTIVE,
+        "target_classes": list(TARGET_CLASSES),
+        "all_classes": list(ALL_CLASSES),
+        "use_zoom": USE_HUMAN_ZOOM,
+        "use_sahi": USE_SAHI,
+        "use_dip": USE_DIP,
+        "use_wavelet": USE_WAVELET,
+        "camera_index": CAMERA_INDEX
+    }
+
+def load_runtime_settings():
+    """Loads shared settings, merging defaults with runtime_settings.json if present."""
+    settings = get_default_settings()
+    if os.path.exists(RUNTIME_SETTINGS_FILE):
+        try:
+            with open(RUNTIME_SETTINGS_FILE, "r") as f:
+                saved = json.load(f)
+                if isinstance(saved, dict):
+                    settings.update(saved)
+        except Exception as e:
+            print(f"[Settings] Warning reading runtime settings: {e}")
+    return settings
+
+def save_runtime_settings(updates):
+    """Saves updated settings to runtime_settings.json for sharing across web and CLI."""
+    try:
+        current = load_runtime_settings()
+        for k, v in updates.items():
+            current[k] = v
+        with open(RUNTIME_SETTINGS_FILE, "w") as f:
+            json.dump(current, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"[Settings] Error saving runtime settings: {e}")
+        return False
+

@@ -5,12 +5,5 @@
     "source": "0",
     "type": "local",
     "enabled": true
-  },
-  {
-    "id": "cam_1",
-    "name": "External / iPhone Camera",
-    "source": "1",
-    "type": "local",
-    "enabled": true
   }
 ]

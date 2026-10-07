@@ -81,14 +81,61 @@ class WeaponDetector:
     8. Full-Frame Fallback: Runs inference on full frame if no humans are detected.
     """
     def __init__(self, weapon_model_path, person_model_path):
+        self.weapon_model_path = weapon_model_path
+        self.person_model_path = person_model_path
         print(f"[Detector] Loading Weapon Model: {weapon_model_path}")
         self.weapon_model = YOLO(weapon_model_path)
         print(f"[Detector] Loading Person Model: {person_model_path}")
         self.person_model = YOLO(person_model_path)
 
+    def set_weapon_model(self, weapon_model_path):
+        """Hot-reloads the YOLO weapon detection model at runtime."""
+        print(f"[Detector] Switching Weapon Model: {weapon_model_path}")
+        self.weapon_model = YOLO(weapon_model_path)
+        self.weapon_model_path = weapon_model_path
+        return self.model_classes
+
+    @property
+    def model_classes(self):
+        """Returns the list of class names defined in the loaded weapon model."""
+        if hasattr(self.weapon_model, 'names') and isinstance(self.weapon_model.names, dict):
+            return list(self.weapon_model.names.values())
+        return []
+
+    def get_default_threat_classes(self):
+        """
+        Dynamically discovers weapon-related classes from whatever model is loaded.
+        Matches common threat keywords (case-insensitive: gun, pistol, knife, etc.).
+        If no non-threat classes exist (e.g. model only has Gun), returns all classes.
+        """
+        classes = self.model_classes
+        threat_keywords = (
+            'gun', 'pistol', 'knife', 'rifle', 'weapon', 'blade', 'dagger',
+            'machete', 'sword', 'handgun', 'firearm', 'revolver', 'shotgun'
+        )
+        threats = [c for c in classes if any(k in c.lower() for k in threat_keywords)]
+        return threats if threats else list(classes)
+
+    def is_target_class(self, label, target_classes):
+        """
+        Case-insensitive and robust class matching:
+        - If target_classes is None or 'all': detects all classes (filter is OFF).
+        - If target_classes is a list/set: matches label.strip().lower() against target classes.
+        """
+        if target_classes is None:
+            return True
+        if isinstance(target_classes, str):
+            if target_classes.strip().lower() == 'all':
+                return True
+            target_classes = [target_classes]
+        target_lower = [str(c).strip().lower() for c in target_classes if str(c).strip()]
+        if not target_lower:
+            return False
+        return str(label).strip().lower() in target_lower
+
     def detect(self, frame, conf_threshold=0.50, imgsz=IMGSZ,
                use_zoom=USE_HUMAN_ZOOM, use_sahi=USE_SAHI,
-               target_classes=TARGET_CLASSES,
+               target_classes=None,
                margin_x=HUMAN_MARGIN_X, margin_y=HUMAN_MARGIN_Y,
                tile_size=SAHI_TILE_SIZE, overlap=SAHI_OVERLAP, nms_iou=SAHI_NMS_IOU,
                use_dip=USE_DIP, use_wavelet=USE_WAVELET):
@@ -187,8 +234,8 @@ class WeaponDetector:
                                 w_conf = float(wb.conf[0])
                                 w_label = self.weapon_model.names[w_cls]
 
-                                # Filter by target threat classes (e.g. Pistol, Knife)
-                                if target_classes and w_label.lower() not in [c.lower() for c in target_classes]:
+                                # Filter by target threat classes
+                                if not self.is_target_class(w_label, target_classes):
                                     continue
 
                                 roi_crop = frame[gy1:gy2, gx1:gx2].copy()
@@ -236,7 +283,7 @@ class WeaponDetector:
                             w_label = self.weapon_model.names[w_cls]
 
                             # Filter by target threat classes
-                            if target_classes and w_label.lower() not in [c.lower() for c in target_classes]:
+                            if not self.is_target_class(w_label, target_classes):
                                 continue
 
                             roi_crop = frame[gy1:gy2, gx1:gx2].copy()
@@ -263,7 +310,7 @@ class WeaponDetector:
             w_label = self.weapon_model.names[w_cls]
 
             # Filter by target threat classes
-            if target_classes and w_label.lower() not in [c.lower() for c in target_classes]:
+            if not self.is_target_class(w_label, target_classes):
                 continue
 
             roi_crop = frame[gy1:gy2, gx1:gx2].copy()

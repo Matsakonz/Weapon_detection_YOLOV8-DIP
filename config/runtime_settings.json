@@ -1,0 +1,27 @@
+{
+  "model_weapon": "best4.pt",
+  "conf_min": 0.6,
+  "conf_high": 0.8,
+  "weight_ai": 0.9,
+  "weight_shape": 0.1,
+  "weighted_score_min": 0.7,
+  "frame_accum_min": 4,
+  "dashboard_active": false,
+  "target_classes": [
+    "Pistol",
+    "Knife"
+  ],
+  "all_classes": [
+    "Pistol",
+    "Smartphone",
+    "Knife",
+    "Purse",
+    "Bill",
+    "Card"
+  ],
+  "use_zoom": true,
+  "use_sahi": true,
+  "use_dip": true,
+  "use_wavelet": true,
+  "camera_index": 0
+}

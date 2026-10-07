@@ -35,7 +35,54 @@
     </table>
   </div>
 
-  <!-- Section 2: Flowchart Verification & Thresholds -->
+  <!-- Section 2: AI Detection Model Selection -->
+  <div class="panel-card">
+    <div class="card-header-action">
+      <div>
+        <h3 style="margin-bottom: 4px;">AI Detection Model</h3>
+        <p style="font-size: 0.78rem; color: var(--text-secondary);">
+          Select and switch the active YOLO neural network from the <code>models/</code> folder in real-time.
+        </p>
+      </div>
+      <div id="activeModelBadge" class="type-pill" style="font-family: var(--font-mono); font-size: 0.75rem; background: rgba(255, 255, 255, 0.1); color: #fff; padding: 4px 10px; border-radius: 4px;">
+        Active: Loading...
+      </div>
+    </div>
+
+    <div style="margin-top: 16px; display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: flex-end;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label for="modelSelect" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span>Available Models in <code>models/</code></span>
+          <span id="modelInfoText" style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
+            Scanning...
+          </span>
+        </label>
+        <select id="modelSelect" style="width: 100%; cursor: pointer;" onchange="onModelSelectionChange(this.value)">
+          <!-- Populated via JS -->
+        </select>
+      </div>
+      <div>
+        <button type="button" class="btn-primary" id="btnApplyModel" onclick="applyModelSelection()" style="padding: 9px 20px; white-space: nowrap;">
+          ⚡ Switch Model
+        </button>
+      </div>
+    </div>
+
+    <!-- Selected Model Inspection Details -->
+    <div id="modelDetailsCard" style="margin-top: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 14px 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary);">
+          Classes in Selected Model:
+        </span>
+        <span id="modelSizeBadge" style="font-size: 0.72rem; color: var(--text-secondary); font-family: var(--font-mono);"></span>
+      </div>
+      <div id="modelClassesPreview" style="display: flex; flex-wrap: wrap; gap: 6px;">
+        <!-- Populated via JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 3: Flowchart Verification & Thresholds -->
   <div class="panel-card">
     <h3 style="margin-bottom: 4px;">Flowchart Verification Parameters</h3>
     <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 24px;">
@@ -119,7 +166,7 @@
         <div class="form-group" style="grid-column: 1 / -1; background: rgba(255,255,255,0.03); padding: 14px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
           <label style="margin: 0 0 6px 0; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
             <span>Target Threat Classes (Detection Filter)</span>
-            <span style="font-size: 0.72rem; color: #ff5252; font-family: var(--font-mono);">DEFAULT: PISTOL & KNIFE</span>
+            <span style="font-size: 0.72rem; color: #ff5252; font-family: var(--font-mono);">MODEL THREAT CLASSES</span>
           </label>
           <small style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 12px;">
             Select which classes from the model trigger the detection and verification pipeline. Unchecked items (like phones or purses) will be ignored.

@@ -45,12 +45,15 @@
       <div class="pill-group">
         <span class="hud-pill highlight" id="hudCamera">FEED: ACTIVE</span>
         <span class="hud-pill" id="hudMode">MODE: ORIGINAL CAM</span>
+        <span class="hud-pill" id="hudModel">MODEL: --</span>
         <span class="hud-pill" id="hudFps">FPS: --</span>
         <span class="hud-pill" id="hudTimestamp">TIME: --:--:--</span>
       </div>
 
-      <div class="pill-group">
+      <div class="pill-group" style="flex-wrap: wrap;">
         <button class="cam-btn" id="btnViewModeSwitch" onclick="cycleViewMode()" title="Switch Camera View Mode">VIEW: AUTO</button>
+        <button class="cam-btn" id="btnToggleWeaponFilter" onclick="toggleWeaponFilter()" title="Toggle Threat Filter (Weapons Only vs All Classes)">🛡️ Filter: THREATS</button>
+        <span id="dynamicClassFilters" style="display: inline-flex; gap: 6px; flex-wrap: wrap;"></span>
         <button class="cam-btn" id="btnToggleZoom" onclick="toggleFeature('zoom')">Zoom: ON</button>
         <button class="cam-btn" id="btnToggleSahi" onclick="toggleFeature('sahi')" title="Targeted SAHI Multi-Tile Slicing">SAHI: ON</button>
         <button class="cam-btn" id="btnToggleDip" onclick="toggleFeature('dip')">DIP: ON</button>

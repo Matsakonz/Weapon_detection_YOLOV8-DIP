@@ -1,14 +1,37 @@
 // Dashboard logic: Multi-camera grid, single camera switching, real-time polling, and alerts
 
-let activeCameraId = "cam_1"; // Default working camera index 1
+let activeCameraId = localStorage.getItem('aegis_active_cam') || null;
 let isAlertActive = false;
 let isGridView = false;
 let cameraList = [];
 
 document.addEventListener('DOMContentLoaded', () => {
+  setupStreamErrorHandler();
   loadCameras();
   startStatusPolling();
 });
+
+// Auto-reconnect stream on page restore (e.g. returning from Settings via browser back or nav)
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    loadCameras();
+  }
+});
+
+function setupStreamErrorHandler() {
+  const streamImg = document.getElementById('liveStream');
+  if (streamImg && !streamImg._hasErrorHandler) {
+    streamImg._hasErrorHandler = true;
+    streamImg.onerror = () => {
+      console.warn("[LiveStream] Connection interrupted, retrying in 1s...");
+      setTimeout(() => {
+        if (!isGridView && activeCameraId) {
+          streamImg.src = `/video_feed/${activeCameraId}?t=${Date.now()}`;
+        }
+      }, 1000);
+    };
+  }
+}
 
 // 1. Fetch available cameras and populate selector tabs
 async function loadCameras() {
@@ -16,7 +39,21 @@ async function loadCameras() {
     const res = await fetch('/api/cameras');
     cameraList = await res.json();
     const container = document.getElementById('cameraSelector');
+    if (!container) return;
     container.innerHTML = '';
+
+    if (!Array.isArray(cameraList) || cameraList.length === 0) {
+      const hudCam = document.getElementById('hudCamera');
+      if (hudCam) hudCam.innerText = 'FEED: NO CAMERAS CONFIGURED';
+      return;
+    }
+
+    // Verify if activeCameraId is valid for the current configured camera list
+    const exists = cameraList.some(c => c.id === activeCameraId);
+    if (!exists) {
+      activeCameraId = cameraList[0].id;
+      localStorage.setItem('aegis_active_cam', activeCameraId);
+    }
 
     cameraList.forEach((cam) => {
       const btn = document.createElement('button');
@@ -29,8 +66,8 @@ async function loadCameras() {
 
     if (isGridView) {
       renderCameraGrid();
-    } else if (cameraList.length > 0 && !activeCameraId) {
-      switchCamera(cameraList[0].id, container.querySelectorAll('.cam-btn')[0]);
+    } else {
+      switchCamera(activeCameraId);
     }
   } catch (err) {
     console.error("Failed to load cameras:", err);
@@ -91,12 +128,19 @@ function focusCamera(camId) {
 // 5. Switch Single Camera Feed
 function switchCamera(camId, btnElement) {
   isGridView = false;
-  document.getElementById('gridViewWrapper').style.display = 'none';
-  document.getElementById('singleViewWrapper').style.display = 'flex';
+  const gridWrapper = document.getElementById('gridViewWrapper');
+  const singleWrapper = document.getElementById('singleViewWrapper');
+  if (gridWrapper) gridWrapper.style.display = 'none';
+  if (singleWrapper) singleWrapper.style.display = 'flex';
 
   activeCameraId = camId;
+  localStorage.setItem('aegis_active_cam', camId);
+
   const streamImg = document.getElementById('liveStream');
-  streamImg.src = `/video_feed/${camId}`;
+  if (streamImg) {
+    // Append timestamp to force browser to reopen a clean MJPEG stream socket
+    streamImg.src = `/video_feed/${camId}?t=${Date.now()}`;
+  }
 
   // Update tabs
   document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
@@ -123,6 +167,9 @@ function startStatusPolling() {
       // Update HUD elements
       const fpsEl = document.getElementById('hudFps');
       if (fpsEl) fpsEl.innerText = `FPS: ${data.fps || '--'}`;
+
+      const modelEl = document.getElementById('hudModel');
+      if (modelEl) modelEl.innerText = `MODEL: ${data.model_weapon || '--'}`;
 
       const modeEl = document.getElementById('hudMode');
       if (modeEl) {
@@ -161,6 +208,39 @@ function startStatusPolling() {
 
       const personEl = document.getElementById('statPersons');
       if (personEl) personEl.innerText = data.person_count || 0;
+
+      // Sync active class filter buttons dynamically based on loaded model
+      if (data.all_classes && data.target_classes) {
+        const container = document.getElementById('dynamicClassFilters');
+        const filterBtn = document.getElementById('btnToggleWeaponFilter');
+        const tLower = data.target_classes.map(c => c.toLowerCase());
+        const allLower = data.all_classes.map(c => c.toLowerCase());
+
+        const isAll = allLower.length > 0 && allLower.every(c => tLower.includes(c));
+        if (filterBtn) {
+          filterBtn.innerText = isAll ? '🛡️ Filter: ALL (OFF)' : '🛡️ Filter: THREATS (ON)';
+          filterBtn.style.borderColor = isAll ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 82, 82, 0.7)';
+          filterBtn.style.color = isAll ? '#aaaaaa' : '#ff5252';
+        }
+
+        if (container) {
+          const newKey = data.all_classes.join(',') + '|' + data.target_classes.join(',');
+          if (container.getAttribute('data-classes-key') !== newKey) {
+            container.setAttribute('data-classes-key', newKey);
+            container.innerHTML = data.all_classes.map(clsName => {
+              const on = tLower.includes(clsName.toLowerCase());
+              const isWeapon = ['gun', 'pistol', 'knife', 'blade', 'rifle', 'weapon', 'sword', 'dagger', 'handgun'].some(k => clsName.toLowerCase().includes(k));
+              const icon = clsName.toLowerCase().includes('knife') ? '🔪' : (isWeapon ? '🔫' : '📦');
+              return `
+                <button class="cam-btn" onclick="toggleClassFilter('${clsName}')" 
+                  style="opacity: ${on ? '1' : '0.45'}; border-color: ${on ? (isWeapon ? 'rgba(255,82,82,0.6)' : 'rgba(0,180,255,0.6)') : 'rgba(255,255,255,0.1)'};">
+                  ${icon} ${clsName}: ${on ? 'ON' : 'OFF'}
+                </button>
+              `;
+            }).join('');
+          }
+        }
+      }
 
       // Handle threat alert banner & chime
       const banner = document.getElementById('alarmBanner');
@@ -232,6 +312,32 @@ async function toggleFeature(feature) {
     }
   } catch (err) {
     console.error(err);
+  }
+}
+
+// 8b. Toggle Threat Filter Mode (Threats Only vs All Classes)
+async function toggleWeaponFilter() {
+  try {
+    const res = await fetch('/api/toggle/weapon_filter', { method: 'POST' });
+    const data = await res.json();
+    const btn = document.getElementById('btnToggleWeaponFilter');
+    if (btn) {
+      const isAll = (data.mode === 'all' || !data.state);
+      btn.innerText = isAll ? '🛡️ Filter: ALL (OFF)' : '🛡️ Filter: THREATS (ON)';
+      btn.style.borderColor = isAll ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 82, 82, 0.7)';
+      btn.style.color = isAll ? '#aaaaaa' : '#ff5252';
+    }
+  } catch (err) {
+    console.error("Failed to toggle weapon filter:", err);
+  }
+}
+
+// 8c. Toggle Specific Target Class
+async function toggleClassFilter(className) {
+  try {
+    await fetch(`/api/toggle/${encodeURIComponent(className)}`, { method: 'POST' });
+  } catch (err) {
+    console.error(`Failed to toggle class ${className}:`, err);
   }
 }
 
