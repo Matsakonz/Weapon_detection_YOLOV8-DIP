@@ -88,6 +88,13 @@ class WeaponDetector:
         print(f"[Detector] Loading Person Model: {person_model_path}")
         self.person_model = YOLO(person_model_path)
 
+        # Warm-up: run a dummy inference so JIT/CUDA compilation happens now,
+        # not on the first real camera frame (eliminates first-frame latency spike)
+        _dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+        self.weapon_model(_dummy, verbose=False)
+        self.person_model(_dummy, verbose=False)
+        print("[Detector] Models warmed up ✓")
+
     def set_weapon_model(self, weapon_model_path):
         """Hot-reloads the YOLO weapon detection model at runtime."""
         print(f"[Detector] Switching Weapon Model: {weapon_model_path}")
@@ -104,14 +111,13 @@ class WeaponDetector:
 
     def get_default_threat_classes(self):
         """
-        Dynamically discovers weapon-related classes from whatever model is loaded.
-        Matches common threat keywords (case-insensitive: gun, pistol, knife, etc.).
-        If no non-threat classes exist (e.g. model only has Gun), returns all classes.
+        Dynamically discovers weapon-related classes from loaded model.
+        Defaults to guns/firearms (knife excluded by default).
         """
         classes = self.model_classes
         threat_keywords = (
-            'gun', 'pistol', 'knife', 'rifle', 'weapon', 'blade', 'dagger',
-            'machete', 'sword', 'handgun', 'firearm', 'revolver', 'shotgun'
+            'gun', 'pistol', 'rifle', 'weapon',
+            'handgun', 'firearm', 'revolver', 'shotgun'
         )
         threats = [c for c in classes if any(k in c.lower() for k in threat_keywords)]
         return threats if threats else list(classes)
@@ -158,7 +164,8 @@ class WeaponDetector:
         person_boxes = []
 
         if use_zoom and self.person_model is not None:
-            p_results = self.person_model(frame, classes=[0], conf=0.35, verbose=False)
+            # 0.45 threshold reduces false person crops (furniture, mannequins) → fewer wasted SAHI tiles
+            p_results = self.person_model(frame, classes=[0], conf=0.45, verbose=False)
             boxes = p_results[0].boxes
 
             if len(boxes) > 0:

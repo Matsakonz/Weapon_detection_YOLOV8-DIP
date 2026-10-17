@@ -2,20 +2,24 @@ import cv2
 import pywt
 import numpy as np
 
+# Create CLAHE once — avoids costly reallocation on every tile/frame
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
 def apply_wavelet_subband_boost(l_channel, boost_factor=1.25):
     """
     Applies 2D Discrete Wavelet Transform (Haar) and boosts
     high-frequency detail sub-bands (LH, HL, HH) to accentuate weapon edges.
     """
     try:
-        coeffs = pywt.dwt2(l_channel.astype(np.float32), 'haar')
+        # db2 (Daubechies-2) captures smoother weapon edges vs basic Haar
+        coeffs = pywt.dwt2(l_channel.astype(np.float32), 'db2')
         LL, (LH, HL, HH) = coeffs
 
         LH *= boost_factor
         HL *= boost_factor
         HH *= boost_factor
 
-        l_rec = pywt.idwt2((LL, (LH, HL, HH)), 'haar')
+        l_rec = pywt.idwt2((LL, (LH, HL, HH)), 'db2')
         l_rec = np.clip(l_rec, 0, 255).astype(np.uint8)
 
         if l_rec.shape != l_channel.shape:
@@ -57,8 +61,7 @@ def apply_dip_enhancement(image, use_wavelet=True):
     if use_wavelet:
         l = apply_wavelet_subband_boost(l)
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    l_clahe = clahe.apply(l)
+    l_clahe = _CLAHE.apply(l)
     enhanced = cv2.cvtColor(cv2.merge([l_clahe, a, b]), cv2.COLOR_LAB2BGR)
 
     return apply_unsharp_mask(enhanced, sigma=1.5, strength=1.4)

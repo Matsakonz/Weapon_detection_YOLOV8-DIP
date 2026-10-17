@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import importlib
 import cv2
 import numpy as np
 import threading
@@ -9,6 +10,8 @@ from flask import Flask, render_template, Response, request, jsonify
 
 # Add root directory to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import config.settings
 
 from config.settings import (
     MODEL_WEAPON,
@@ -18,12 +21,9 @@ from config.settings import (
     resolve_model_path,
     RESULTS_DIR,
     CONF_MIN,
-    CONF_HIGH,
-    WEIGHT_AI,
-    WEIGHT_SHAPE,
-    WEIGHTED_SCORE_MIN,
     FRAME_ACCUMULATION_MIN,
     DASHBOARD_ACTIVE,
+    SAVE_SNAPSHOTS,
     TARGET_CLASSES,
     ALL_CLASSES,
     IMGSZ,
@@ -57,10 +57,10 @@ model_lock = threading.Lock()
 
 active_model_classes = detector.model_classes if detector.model_classes else runtime_cfg.get("all_classes", list(ALL_CLASSES))
 saved_targets = runtime_cfg.get("target_classes")
-if saved_targets:
+if saved_targets is not None:
     active_threat_classes = saved_targets
 else:
-    active_threat_classes = detector.get_default_threat_classes()
+    active_threat_classes = list(TARGET_CLASSES)
 
 def get_initial_camera_id():
     try:
@@ -77,12 +77,9 @@ def get_initial_camera_id():
 state = {
     "model_weapon": active_model_file,
     "conf_min": runtime_cfg.get("conf_min", CONF_MIN),
-    "conf_high": runtime_cfg.get("conf_high", CONF_HIGH),
-    "weight_ai": runtime_cfg.get("weight_ai", WEIGHT_AI),
-    "weight_shape": runtime_cfg.get("weight_shape", WEIGHT_SHAPE),
-    "weighted_score_min": runtime_cfg.get("weighted_score_min", WEIGHTED_SCORE_MIN),
     "frame_accum_min": runtime_cfg.get("frame_accum_min", FRAME_ACCUMULATION_MIN),
-    "dashboard_active": runtime_cfg.get("dashboard_active", True),
+    "dashboard_active": runtime_cfg.get("dashboard_active", DASHBOARD_ACTIVE),
+    "save_snapshots": runtime_cfg.get("save_snapshots", SAVE_SNAPSHOTS),
     "target_classes": list(active_threat_classes),
     "all_classes": list(active_model_classes),
     "use_zoom": runtime_cfg.get("use_zoom", USE_HUMAN_ZOOM),
@@ -99,6 +96,31 @@ state = {
     "recent_events": [],
     "last_frame": None
 }
+alert_mgr.save_snapshots = state["save_snapshots"]
+
+_last_settings_mtime = 0
+
+def sync_settings_from_file():
+    global _last_settings_mtime
+    try:
+        settings_path = getattr(config.settings, "SETTINGS_FILE", None)
+        if settings_path and os.path.exists(settings_path):
+            mtime = os.path.getmtime(settings_path)
+            if mtime > _last_settings_mtime:
+                _last_settings_mtime = mtime
+                importlib.reload(config.settings)
+                state["conf_min"] = config.settings.CONF_MIN
+                state["frame_accum_min"] = config.settings.FRAME_ACCUMULATION_MIN
+                state["dashboard_active"] = config.settings.DASHBOARD_ACTIVE
+                state["save_snapshots"] = config.settings.SAVE_SNAPSHOTS
+                state["target_classes"] = list(config.settings.TARGET_CLASSES)
+                state["use_sahi"] = config.settings.USE_SAHI
+                state["use_dip"] = config.settings.USE_DIP
+                state["use_wavelet"] = config.settings.USE_WAVELET
+                state["use_zoom"] = config.settings.USE_HUMAN_ZOOM
+                alert_mgr.save_snapshots = state["save_snapshots"]
+    except Exception:
+        pass
 
 from datetime import datetime
 
@@ -127,6 +149,12 @@ class CameraStreamWorker:
         self.has_threat = False
         self.last_threat_time = 0
         self.fps = 0.0
+
+        # Motion detection state (frame-skip optimization)
+        self._prev_gray = None          # Last grayscale frame used for diff
+        self._static_skip_count = 0     # Consecutive skipped static frames
+        self._MOTION_THRESHOLD = 1.5    # Mean pixel diff below this = no motion
+        self._MAX_STATIC_SKIPS = 8      # Force a full inference every N skips (safety net)
 
         # Start capture thread
         self.cap_thread = threading.Thread(target=self._capture_loop, daemon=True)
@@ -178,6 +206,7 @@ class CameraStreamWorker:
 
     def _detection_loop(self):
         while self.running:
+            sync_settings_from_file()
             frame_to_process = None
             with self.frame_lock:
                 if self.latest_frame is not None:
@@ -186,6 +215,22 @@ class CameraStreamWorker:
             if frame_to_process is None:
                 time.sleep(0.05)
                 continue
+
+            # --- MOTION-BASED FRAME SKIP ---
+            # Skip AI inference entirely when the scene is static.
+            # Override: always run if a threat is currently active (person standing still).
+            force_run = self.has_threat or (self._static_skip_count >= self._MAX_STATIC_SKIPS)
+            if not force_run:
+                gray = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2GRAY)
+                if self._prev_gray is not None:
+                    diff = cv2.absdiff(gray, self._prev_gray)
+                    motion_score = float(diff.mean())
+                    if motion_score < self._MOTION_THRESHOLD:
+                        self._static_skip_count += 1
+                        time.sleep(0.04)   # Yield CPU while scene is idle
+                        continue
+                self._prev_gray = gray
+            self._static_skip_count = 0
 
             # Run AI detection + Flowchart verification
             with model_lock:
@@ -198,10 +243,6 @@ class CameraStreamWorker:
 
                 verifier.dashboard_active = state["dashboard_active"]
                 verifier.conf_min = state["conf_min"]
-                verifier.conf_high = state["conf_high"]
-                verifier.weight_ai = state["weight_ai"]
-                verifier.weight_shape = state["weight_shape"]
-                verifier.weighted_score_min = state["weighted_score_min"]
                 verifier.frame_accum_min = state["frame_accum_min"]
                 verified_threats, is_confirmed = verifier.verify_candidates(raw_cands, frame_to_process)
 
@@ -466,6 +507,34 @@ def add_camera():
     cam_hub.save_cameras(cameras)
     return jsonify({"success": True, "camera_id": new_id})
 
+@app.route('/api/cameras/<cam_id>', methods=['PUT'])
+def edit_camera(cam_id):
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    cam_type = data.get('type', 'ip')
+    source = data.get('source', '').strip()
+
+    if not name or not source:
+        return jsonify({"success": False, "message": "Name and Source are required."}), 400
+
+    cameras = cam_hub.load_cameras()
+    found = False
+    for cam in cameras:
+        if cam['id'] == cam_id:
+            cam['name'] = name
+            cam['type'] = cam_type
+            cam['source'] = source
+            found = True
+            break
+
+    if not found:
+        return jsonify({"success": False, "message": "Camera not found."}), 404
+
+    cam_hub.save_cameras(cameras)
+    # Restart worker so new source/name takes effect
+    cam_hub.release_cam(cam_id)
+    return jsonify({"success": True})
+
 @app.route('/api/cameras/<cam_id>', methods=['DELETE'])
 def delete_camera(cam_id):
     cameras = cam_hub.load_cameras()
@@ -529,6 +598,7 @@ def switch_active_model(model_filename):
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
+    sync_settings_from_file()
     cams = cam_hub.load_cameras()
     valid_ids = [c['id'] for c in cams] if cams else []
     active_id = state.get("active_camera_id")
@@ -546,13 +616,17 @@ def get_status():
         "threat_label": state["threat_label"],
         "view_mode": state.get("view_mode", "auto"),
         "model_weapon": state.get("model_weapon", "best.pt"),
+        "conf_min": state["conf_min"],
+        "frame_accum_min": state["frame_accum_min"],
+        "save_snapshots": state["save_snapshots"],
         "use_sahi": state["use_sahi"],
         "use_zoom": state["use_zoom"],
         "use_dip": state["use_dip"],
         "target_classes": state["target_classes"],
         "all_classes": state["all_classes"],
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "recent_events": state["recent_events"][:10]
+        "recent_events": state["recent_events"][:10],
+        "dashboard_active": state["dashboard_active"]
     })
 
 @app.route('/api/models', methods=['GET'])
@@ -594,12 +668,9 @@ def get_settings():
     return jsonify({
         "model_weapon": state.get("model_weapon", "best.pt"),
         "CONF_MIN": state["conf_min"],
-        "CONF_HIGH": state["conf_high"],
-        "WEIGHT_AI": state["weight_ai"],
-        "WEIGHT_SHAPE": state["weight_shape"],
-        "WEIGHTED_SCORE_MIN": state["weighted_score_min"],
         "FRAME_ACCUMULATION_MIN": state["frame_accum_min"],
         "DASHBOARD_ACTIVE": state["dashboard_active"],
+        "SAVE_SNAPSHOTS": state["save_snapshots"],
         "USE_SAHI": state["use_sahi"],
         "target_classes": state["target_classes"],
         "all_classes": state["all_classes"]
@@ -611,20 +682,41 @@ def save_settings():
     if "model_weapon" in data and data["model_weapon"] and data["model_weapon"] != state.get("model_weapon"):
         switch_active_model(data["model_weapon"])
     if "CONF_MIN" in data: state["conf_min"] = float(data["CONF_MIN"])
-    if "CONF_HIGH" in data: state["conf_high"] = float(data["CONF_HIGH"])
-    if "WEIGHT_AI" in data: state["weight_ai"] = float(data["WEIGHT_AI"])
-    if "WEIGHT_SHAPE" in data: state["weight_shape"] = float(data["WEIGHT_SHAPE"])
-    if "WEIGHTED_SCORE_MIN" in data: state["weighted_score_min"] = float(data["WEIGHTED_SCORE_MIN"])
     if "FRAME_ACCUMULATION_MIN" in data: state["frame_accum_min"] = int(data["FRAME_ACCUMULATION_MIN"])
     if "USE_SAHI" in data: state["use_sahi"] = bool(data["USE_SAHI"])
+    if "DASHBOARD_ACTIVE" in data:
+        state["dashboard_active"] = bool(data["DASHBOARD_ACTIVE"])
+    elif "dashboard_active" in data:
+        state["dashboard_active"] = bool(data["dashboard_active"])
+    if "SAVE_SNAPSHOTS" in data:
+        state["save_snapshots"] = bool(data["SAVE_SNAPSHOTS"])
+    elif "save_snapshots" in data:
+        state["save_snapshots"] = bool(data["save_snapshots"])
+    alert_mgr.save_snapshots = state["save_snapshots"]
+
     if "target_classes" in data and isinstance(data["target_classes"], list):
         state["target_classes"] = [str(c).strip() for c in data["target_classes"] if str(c).strip()]
     
-    # Persist to shared config file
-    save_runtime_settings(state)
+    # Persist cleanly to settings.py and runtime_settings.json
+    clean_settings = {
+        "model_weapon": state.get("model_weapon", "best.pt"),
+        "conf_min": state["conf_min"],
+        "frame_accum_min": state["frame_accum_min"],
+        "dashboard_active": state["dashboard_active"],
+        "save_snapshots": state["save_snapshots"],
+        "target_classes": state["target_classes"],
+        "all_classes": state["all_classes"],
+        "use_zoom": state["use_zoom"],
+        "use_sahi": state["use_sahi"],
+        "use_dip": state["use_dip"],
+        "use_wavelet": state["use_wavelet"],
+        "view_mode": state.get("view_mode", "auto")
+    }
+    save_runtime_settings(clean_settings)
     return jsonify({
         "success": True,
         "model_weapon": state.get("model_weapon", "best.pt"),
+        "dashboard_active": state["dashboard_active"],
         "all_classes": state["all_classes"],
         "target_classes": state["target_classes"]
     })
@@ -633,7 +725,10 @@ def save_settings():
 def toggle_feature(feature):
     feat_lower = feature.lower()
     resp = None
-    if feat_lower == 'zoom':
+    if feat_lower in ['arm', 'alarm', 'dashboard_active', 'armed']:
+        state['dashboard_active'] = not state['dashboard_active']
+        resp = jsonify({"feature": "arm", "state": state['dashboard_active']})
+    elif feat_lower == 'zoom':
         state['use_zoom'] = not state['use_zoom']
         resp = jsonify({"feature": "zoom", "state": state['use_zoom']})
     elif feat_lower == 'sahi':
@@ -685,11 +780,31 @@ def toggle_feature(feature):
         return resp
     return jsonify({"error": "Unknown feature"}), 400
 
+@app.route('/api/test_alarm', methods=['POST'])
+def test_alarm():
+    frame = state.get("last_frame")
+    if frame is None:
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    alert_mgr.trigger_buzzer()
+    alert_mgr.publish_mqtt({
+        "event": "TEST_ALARM",
+        "threat": "TEST_TRIGGER",
+        "verification_score": 1.0,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    })
+    snap_path = alert_mgr.save_incident_snapshot(frame, "TEST_ALARM")
+    return jsonify({
+        "success": True,
+        "message": "Alarm buzzer triggered successfully",
+        "snapshot": snap_path,
+        "dashboard_active": state["dashboard_active"]
+    })
+
 @app.route('/api/snapshot', methods=['POST'])
 def manual_snapshot():
     frame = state.get("last_frame")
     if frame is not None:
-        path = alert_mgr.save_incident_snapshot(frame, "MANUAL_WEB_SNAPSHOT")
+        path = alert_mgr.save_incident_snapshot(frame, "MANUAL_WEB_SNAPSHOT", force=True)
         return jsonify({"success": True, "path": path})
     return jsonify({"success": False, "message": "No active frame"}), 400
 

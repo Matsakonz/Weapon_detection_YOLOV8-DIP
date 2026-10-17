@@ -13,6 +13,7 @@ except ImportError:
 from config.settings import (
     BUZZER_ENABLED,
     BUZZER_SOUND_PATH,
+    SAVE_SNAPSHOTS,
     MQTT_ENABLED,
     MQTT_BROKER,
     MQTT_PORT,
@@ -25,11 +26,12 @@ class AlertManager:
     Handles alert dispatching:
     1. Audio Buzzer alert (system sound)
     2. MQTT threat message publishing
-    3. Incident snapshot logging
+    3. Incident snapshot logging (optional, controlled by save_snapshots)
     """
     def __init__(self):
         self.last_alert_time = 0
         self.alert_cooldown = 2.0  # Min seconds between audio alerts
+        self.save_snapshots = SAVE_SNAPSHOTS
         self.mqtt_client = None
         self._init_mqtt()
 
@@ -66,8 +68,10 @@ class AlertManager:
             except Exception as e:
                 print(f"[MQTT] Publish error: {e}")
 
-    def save_incident_snapshot(self, frame, threat_label):
-        """Saves timestamped incident evidence image to results/."""
+    def save_incident_snapshot(self, frame, threat_label, force=False):
+        """Saves timestamped incident evidence image to results/ if enabled or forced."""
+        if not force and not getattr(self, 'save_snapshots', False):
+            return None
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         clean_label = re.sub(r'[^a-zA-Z0-9]', '_', threat_label)
         filename = f"ALERT_{clean_label}_{timestamp}.jpg"
@@ -83,10 +87,10 @@ class AlertManager:
             "event": "WEAPON_DETECTED_CONFIRMED",
             "threat": threat_label,
             "verification_score": round(float(score), 3),
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": time.strftime("%Y%m%d_%H%M%S")
         }
         self.publish_mqtt(threat_info)
-        return self.save_incident_snapshot(frame, threat_label)
+        return self.save_incident_snapshot(frame, threat_label, force=False)
 
     def close(self):
         if self.mqtt_client is not None:

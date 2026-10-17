@@ -26,7 +26,7 @@
           <th>Type</th>
           <th>Source / Address</th>
           <th>Status</th>
-          <th style="text-align: right;">Action</th>
+          <th style="text-align: right;">Actions</th>
         </tr>
       </thead>
       <tbody id="cameraTableBody">
@@ -84,9 +84,9 @@
 
   <!-- Section 3: Flowchart Verification & Thresholds -->
   <div class="panel-card">
-    <h3 style="margin-bottom: 4px;">Flowchart Verification Parameters</h3>
+    <h3 style="margin-bottom: 4px;">Flowchart Verification & Accumulation</h3>
     <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 24px;">
-      Adjust false-positive rejection, weighted scoring, and temporal frame accumulation thresholds.
+      Adjust AI confidence threshold and temporal frame accumulation requirements (Post-DIP shape analysis bypassed).
     </p>
 
     <form id="settingsForm" onsubmit="saveSettings(event)">
@@ -94,51 +94,11 @@
         <!-- Minimum Confidence -->
         <div class="form-group">
           <label>
-            Minimum Confidence (CONF_MIN)
+            Minimum Detection Confidence (CONF_MIN)
             <span class="val" id="valConfMin">60%</span>
           </label>
           <input type="range" id="confMin" min="0.30" max="0.80" step="0.05" value="0.60" oninput="updateVal('valConfMin', this.value, true)">
           <small style="font-size: 0.72rem; color: var(--text-muted);">Detections below this are skipped immediately as noise.</small>
-        </div>
-
-        <!-- High Confidence Pass -->
-        <div class="form-group">
-          <label>
-            High Confidence Bypass (CONF_HIGH)
-            <span class="val" id="valConfHigh">80%</span>
-          </label>
-          <input type="range" id="confHigh" min="0.70" max="0.95" step="0.05" value="0.80" oninput="updateVal('valConfHigh', this.value, true)">
-          <small style="font-size: 0.72rem; color: var(--text-muted);">Detections above this bypass shape checking directly to frame accumulation.</small>
-        </div>
-
-        <!-- AI Weight -->
-        <div class="form-group">
-          <label>
-            AI Confidence Weight (WEIGHT_AI)
-            <span class="val" id="valWeightAi">0.70</span>
-          </label>
-          <input type="range" id="weightAi" min="0.30" max="0.90" step="0.05" value="0.70" oninput="updateVal('valWeightAi', this.value)">
-          <small style="font-size: 0.72rem; color: var(--text-muted);">Weight allocated to YOLO confidence in the 60%-90% bracket.</small>
-        </div>
-
-        <!-- Shape Similarity Weight -->
-        <div class="form-group">
-          <label>
-            Shape Similarity Weight (WEIGHT_SHAPE)
-            <span class="val" id="valWeightShape">0.30</span>
-          </label>
-          <input type="range" id="weightShape" min="0.10" max="0.70" step="0.05" value="0.30" oninput="updateVal('valWeightShape', this.value)">
-          <small style="font-size: 0.72rem; color: var(--text-muted);">Weight allocated to contour / edge density shape analysis.</small>
-        </div>
-
-        <!-- Weighted Score Threshold -->
-        <div class="form-group">
-          <label>
-            Passing Weighted Score (WEIGHTED_SCORE_MIN)
-            <span class="val" id="valScoreMin">70%</span>
-          </label>
-          <input type="range" id="scoreMin" min="0.50" max="0.85" step="0.05" value="0.70" oninput="updateVal('valScoreMin', this.value, true)">
-          <small style="font-size: 0.72rem; color: var(--text-muted);">Composite score needed to qualify as a threat candidate.</small>
         </div>
 
         <!-- Frame Accumulation -->
@@ -149,6 +109,36 @@
           </label>
           <input type="range" id="frameAccum" min="2" max="10" step="1" value="4" oninput="updateVal('valFrameAccum', this.value + ' Frames')">
           <small style="font-size: 0.72rem; color: var(--text-muted);">Consecutive detection frames required before triggering buzzer / alert.</small>
+        </div>
+
+        <!-- Master Alarm & Armed Status -->
+        <div class="form-group" style="grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; background: rgba(255,82,82,0.06); padding: 14px 16px; border-radius: 8px; border: 1px solid rgba(255,82,82,0.25);">
+          <div>
+            <label style="margin: 0; font-weight: 600; color: #ff5252; display: flex; align-items: center; gap: 8px;">
+              <span>🚨 Master Alarm & Buzzer Armed (DASHBOARD_ACTIVE)</span>
+              <span id="alarmArmedPill" class="type-pill" style="font-size: 0.7rem; background: rgba(76, 175, 80, 0.2); color: #81c784; border: 1px solid rgba(76, 175, 80, 0.4);">ARMED</span>
+            </label>
+            <small style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
+              When enabled, confirmed weapon threats trigger the macOS buzzer sound, web audio chime, snapshot logging, and MQTT alert. When disabled, the system operates silently without sounding alarms.
+            </small>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <button type="button" class="btn-secondary" onclick="triggerTestAlarm()" style="padding: 7px 14px; font-size: 0.75rem; white-space: nowrap;">
+              🔔 Test Alarm Buzzer
+            </button>
+            <input type="checkbox" id="dashboardActive" style="transform: scale(1.4); cursor: pointer;" onchange="onAlarmActiveToggle(this.checked)">
+          </div>
+        </div>
+
+        <!-- Save Snapshot on Threat Detection Toggle -->
+        <div class="form-group" style="grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+          <div>
+            <label style="margin: 0; font-weight: 600;">Save Snapshot Pictures on Threat Detection (SAVE_SNAPSHOTS)</label>
+            <small style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
+              When disabled, buzzer and MQTT alerts trigger immediately without saving image files to the results folder.
+            </small>
+          </div>
+          <input type="checkbox" id="saveSnapshots" style="transform: scale(1.3); cursor: pointer;">
         </div>
 
         <!-- Targeted SAHI Multi-Tile Slicing -->
@@ -219,6 +209,45 @@
       <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px;">
         <button type="button" class="btn-secondary" onclick="closeAddCameraModal()">Cancel</button>
         <button type="submit" class="btn-primary">Add Camera</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Edit Camera -->
+<div class="modal-overlay" id="editCameraModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Edit Camera</h3>
+      <button class="close-btn" onclick="closeEditCameraModal()">&#x2715;</button>
+    </div>
+
+    <form id="editCameraForm" onsubmit="submitEditCamera(event)">
+      <input type="hidden" id="editCamId">
+      <div class="form-group">
+        <label>Camera Name</label>
+        <input type="text" id="editCamName" placeholder="e.g. Corridor IP Camera" required>
+      </div>
+
+      <div class="form-group">
+        <label>Camera Type</label>
+        <select id="editCamType" onchange="onEditCameraTypeChange(this.value)">
+          <option value="ip">IP Camera (RTSP / HTTP Stream)</option>
+          <option value="local">Local USB / Built-in Webcam</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label id="editCamSourceLabel">RTSP / HTTP Stream URL</label>
+        <input type="text" id="editCamSource" placeholder="rtsp://admin:password@192.168.1.100:554/stream" required>
+        <small style="font-size: 0.72rem; color: var(--text-muted);" id="editCamSourceHelp">
+          Supports RTSP (rtsp://...), HTTP MJPEG, or HLS stream URLs.
+        </small>
+      </div>
+
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px;">
+        <button type="button" class="btn-secondary" onclick="closeEditCameraModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Save Changes</button>
       </div>
     </form>
   </div>

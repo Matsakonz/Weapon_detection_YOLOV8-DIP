@@ -29,9 +29,9 @@
 
     <!-- Header Status -->
     <div class="header-status">
-      <div class="live-indicator">
-        <div class="pulse-dot"></div>
-        <span>ARMED</span>
+      <div class="live-indicator" id="headerArmIndicator" onclick="toggleSystemArmStatus()" style="cursor: pointer; user-select: none;" title="Click to Arm / Disarm Master Alarm">
+        <div class="pulse-dot" id="headerArmDot"></div>
+        <span id="headerArmText">ARMED</span>
       </div>
     </div>
   </header>
@@ -45,6 +45,45 @@
   <audio id="alertSound" preload="auto">
     <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
   </audio>
+
+  <script>
+    async function toggleSystemArmStatus() {
+      try {
+        const res = await fetch('/api/toggle/arm', { method: 'POST' });
+        const data = await res.json();
+        updateHeaderArmUI(data.state);
+        const dashBox = document.getElementById('dashboardActive');
+        if (dashBox) {
+          dashBox.checked = Boolean(data.state);
+          if (typeof onAlarmActiveToggle === 'function') onAlarmActiveToggle(data.state);
+        }
+      } catch (err) {
+        console.error("Failed to toggle arm status:", err);
+      }
+    }
+
+    function updateHeaderArmUI(isArmed) {
+      const ind = document.getElementById('headerArmIndicator');
+      const dot = document.getElementById('headerArmDot');
+      const txt = document.getElementById('headerArmText');
+      if (txt) txt.innerText = isArmed ? 'ARMED' : 'DISARMED';
+      if (dot) {
+        dot.style.background = isArmed ? '#81c784' : '#ff5252';
+        dot.style.boxShadow = isArmed ? '0 0 8px rgba(76, 175, 80, 0.6)' : 'none';
+      }
+      if (ind) {
+        ind.title = isArmed ? 'System ARMED (Click to Disarm / Mute)' : 'System DISARMED / MUTED (Click to Arm)';
+        ind.style.borderColor = isArmed ? 'rgba(76, 175, 80, 0.4)' : 'rgba(255, 82, 82, 0.4)';
+      }
+    }
+
+    // Initialize header arm indicator on page load
+    fetch('/api/status').then(r => r.json()).then(data => {
+      if (data && data.dashboard_active !== undefined) {
+        updateHeaderArmUI(data.dashboard_active);
+      }
+    }).catch(() => {});
+  </script>
 
   {% block scripts %}{% endblock %}
 </body>

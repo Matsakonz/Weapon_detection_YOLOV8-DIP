@@ -1,15 +1,11 @@
 {
-  "model_weapon": "best4.pt",
+  "model_weapon": "best.pt",
   "conf_min": 0.6,
-  "conf_high": 0.8,
-  "weight_ai": 0.9,
-  "weight_shape": 0.1,
-  "weighted_score_min": 0.7,
-  "frame_accum_min": 4,
-  "dashboard_active": false,
+  "frame_accum_min": 3,
+  "dashboard_active": true,
+  "save_snapshots": false,
   "target_classes": [
-    "Pistol",
-    "Knife"
+    "Pistol"
   ],
   "all_classes": [
     "Pistol",
@@ -23,5 +19,17 @@
   "use_sahi": true,
   "use_dip": true,
   "use_wavelet": true,
-  "camera_index": 0
+  "camera_index": 0,
+  "active_camera_id": "cam_0",
+  "fps": 0.0,
+  "threat_count": 0,
+  "person_count": 0,
+  "is_confirmed": false,
+  "view_mode": "auto",
+  "recent_events": [],
+  "CONF_MIN": 0.7,
+  "TARGET_CLASSES": [
+    "Pistol"
+  ],
+  "SAVE_SNAPSHOTS": false
 }

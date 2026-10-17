@@ -1,481 +1,358 @@
-# 🛡️ AI Weapon Detection & Verification System (DIP Pipeline)
+# 🛡️ Aegis Threat Guard
+### Real-Time Multi-Camera Weapon Detection & Threat Verification System
 
-An end-to-end weapon detection, false-positive rejection, and real-time security surveillance system. The system combines deep learning ([Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)) with classical **Digital Image Processing (DIP)** algorithms (Wavelet DWT, CLAHE, Unsharp Masking, Canny edge density, Aspect Ratio, and Contour Solidity) to minimize false alarms and provide verified security alerts.
-
----
-
-## 📑 Table of Contents
-1. [System Architecture & Directory Structure](#-system-architecture--directory-structure)
-2. [How the Pipeline Works (Step-by-Step Flowchart)](#-how-the-pipeline-works-step-by-step-flowchart)
-3. [Comprehensive Function & Module Reference](#-comprehensive-function--module-reference)
-   - [1. DIP Enhancement (`src/dip/enhancement.py`)](#1-dip-enhancement-srcdipenhancementpy)
-   - [2. DIP Shape Analysis (`src/dip/shape_analysis.py`)](#2-dip-shape-analysis-srcdipshape_analysispy)
-   - [3. Weapon Detection & Human-Zoom (`src/detection/detector.py`)](#3-weapon-detection--human-zoom-srcdetectiondetectorpy)
-   - [4. Threat Verification & Rejection Logic (`src/detection/verifier.py`)](#4-threat-verification--rejection-logic-srcdetectionverifierpy)
-   - [5. Alert Dispatcher & Logger (`src/alerts/alert_manager.py`)](#5-alert-dispatcher--logger-srcalertsalert_managerpy)
-   - [6. Visualizer & HUD Rendering (`src/ui/visualizer.py`)](#6-visualizer--hud-rendering-srcuivisualizerpy)
-   - [7. Core CLI & Main Orchestrator (`main.py`)](#7-core-cli--main-orchestrator-mainpy)
-   - [8. Web Dashboard & Multi-Threaded Streaming (`web/app.py`)](#8-web-dashboard--multi-threaded-streaming-webapppy)
-   - [9. Legacy & Experimentation Scripts](#9-legacy--experimentation-scripts)
-4. [Configuration Reference (`config/settings.py`)](#-configuration-reference-configsettingspy)
-5. [Installation & Setup](#-installation--setup)
-6. [How to Run](#-how-to-run)
-7. [Live Keyboard Controls](#-live-keyboard-controls)
+> A YOLOv8-powered security platform with Digital Image Processing (DIP) enhancement, SAHI sliced inference, multi-camera RTSP support, and a live web dashboard — built for real-world surveillance environments.
 
 ---
 
-## 📁 System Architecture & Directory Structure
+## 📋 Table of Contents
+
+- [Overview](#-overview)
+- [Features](#-features)
+- [System Architecture](#-system-architecture)
+- [Detection Pipeline](#-detection-pipeline)
+- [Project Structure](#-project-structure)
+- [Requirements](#-requirements)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [Configuration](#-configuration)
+- [Web Dashboard](#-web-dashboard)
+- [Alert System](#-alert-system)
+- [Performance Optimizations](#-performance-optimizations)
+- [Models](#-models)
+
+---
+
+## 🔍 Overview
+
+Aegis Threat Guard is a real-time weapon detection system designed for security surveillance. It uses **YOLOv8** object detection with a multi-stage verification pipeline to minimize false alarms while maintaining high sensitivity to genuine threats.
+
+The system ingests live camera feeds (USB, IP/RTSP), runs person detection to isolate human crops, applies a full **Digital Image Processing (DIP)** enhancement pipeline, then performs sliced weapon inference using **SAHI** — all served through a live Flask web dashboard with camera management, alert history, and runtime-configurable settings.
+
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---|---|
+| 🎯 **YOLOv8 Dual-Model** | Separate person (`yolov8n`) and weapon (`best.pt`) models for precision targeting |
+| 🔬 **SAHI Sliced Inference** | 640px tiled inference with 25% overlap — catches small weapons missed by full-frame detection |
+| 🖼️ **DIP Enhancement** | Wavelet (db2) subband boost → CLAHE → Unsharp Mask pipeline improves low-light/blurry frames |
+| 🕐 **Temporal Verification** | Frame accumulation (N consecutive frames) before confirming a threat — eliminates transient false positives |
+| 📷 **Multi-Camera Support** | Unlimited cameras via USB index or RTSP URL, each with independent detection workers |
+| 🌐 **Live Web Dashboard** | Real-time MJPEG streams, threat feed, camera management, and settings UI |
+| 📡 **MQTT Alerts** | Publishes structured JSON payloads to any MQTT broker on threat confirmation |
+| 🔊 **Audio Buzzer** | Plays system alert sound (macOS) or terminal bell on confirmed detection |
+| 📸 **Snapshot Logging** | Optionally saves timestamped evidence images to `results/` |
+| ⚡ **Motion-Based Frame Skip** | Skips AI inference on static scenes — saves 30–50% CPU on idle cameras |
+| 🔥 **Model Warm-up** | Runs dummy inference at startup — eliminates first-frame JIT latency spike |
+
+---
+
+## 🏗️ System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Flask Web Dashboard                      │
+│         (Camera Streams · Settings · Alert History)         │
+└───────────────────────┬─────────────────────────────────────┘
+                        │  per-camera thread
+              ┌─────────▼──────────┐
+              │  CameraStreamWorker │  (web/app.py)
+              │  ┌───────────────┐  │
+              │  │ Motion Detect │  │ ← Skip inference if static
+              │  └──────┬────────┘  │
+              │         │           │
+              │  ┌──────▼────────┐  │
+              │  │ WeaponDetector│  │  (src/detection/detector.py)
+              │  └──────┬────────┘  │
+              └─────────┼───────────┘
+                        │
+        ┌───────────────▼─────────────────────┐
+        │           Detection Pipeline         │
+        │                                      │
+        │  1. Person Detection (YOLOv8n)       │
+        │     └─ Crop + 35%/25% margin         │
+        │                                      │
+        │  2. SAHI Tile Slicing (640px, 25%)   │
+        │     └─ Per-tile DIP Enhancement      │
+        │        ├─ Wavelet db2 boost          │
+        │        ├─ CLAHE (LAB space)          │
+        │        └─ Unsharp Mask               │
+        │                                      │
+        │  3. Weapon YOLO Inference            │
+        │     └─ NMS deduplication             │
+        │                                      │
+        │  4. ThreatVerifier                   │
+        │     ├─ Confidence check (>= 0.6)     │
+        │     ├─ Frame accumulation (N=3)      │
+        │     └─ Miss-streak tolerance (2fr)   │
+        │                                      │
+        │  5. Alert Dispatch                   │
+        │     ├─ MQTT publish                  │
+        │     ├─ Audio buzzer                  │
+        │     └─ Snapshot save (optional)      │
+        └──────────────────────────────────────┘
+```
+
+---
+
+## 🔬 Detection Pipeline
+
+### Stage 1 — Person Detection
+- Uses `yolov8n.pt` to locate humans in the frame (class 0, conf >= 0.45)
+- Expands each person bounding box by **+35% horizontal** / **+25% vertical** margin
+- This captures extended arms, raised weapons, and partially visible threats
+
+### Stage 2 — SAHI Sliced Inference
+- Divides the human crop into 640x640 tiles with **25% overlap**
+- Each tile is independently enhanced and inferred
+- Results from all tiles are merged then **NMS-deduplicated** (IoU 0.45) to remove cross-tile duplicates
+
+### Stage 3 — DIP Enhancement (per tile)
+Applied in `src/dip/enhancement.py`:
+
+| Step | Method | Effect |
+|---|---|---|
+| **Wavelet Boost** | 2D DWT (Daubechies-2), HF subband x 1.25 | Sharpens weapon edges in luminance channel |
+| **CLAHE** | LAB color space, clipLimit=2.0, grid=8x8 | Adaptive contrast — fixes low-light cameras |
+| **Unsharp Mask** | Gaussian sigma=1.5, strength=1.4 | Restores fine edge definition after CLAHE |
+
+### Stage 4 — Threat Verification
+`ThreatVerifier` applies a **temporal accumulation gate**:
+1. Confidence must be >= `CONF_MIN` (0.6) — low-confidence detections are discarded
+2. Must appear in `N` consecutive frames (default: 3) — prevents transient false positives
+3. **Miss-streak tolerance**: 1 missed frame does not immediately reset the counter; 2 consecutive misses are needed — handles motion blur and frame drops
+4. On confirmation → fires Alert pipeline
+
+---
+
+## 📁 Project Structure
 
 ```
 Digital_Final/
+├── main.py                      # Entry point — starts Flask server
+├── requirements.txt             # Python dependencies
+│
 ├── config/
-│   ├── __init__.py
-│   ├── cameras.json          # Multi-camera configurations (local USB/FaceTime & IP RTSP)
-│   └── settings.py          # Centralized configuration (thresholds, weights, camera, MQTT)
-├── src/
-│   ├── dip/
-│   │   ├── __init__.py
-│   │   ├── enhancement.py   # 2D Wavelet DWT, LAB CLAHE, and Unsharp Masking
-│   │   └── shape_analysis.py# ROI aspect ratio, Canny edge density & contour solidity
-│   ├── detection/
-│   │   ├── __init__.py
-│   │   ├── detector.py      # Human-Zoom ROI, Bicubic super-sampling, YOLO inference
-│   │   └── verifier.py      # Flowchart verification (Confidence, Weighted Scoring, Frame Accumulation)
-│   ├── alerts/
-│   │   ├── __init__.py
-│   │   └── alert_manager.py # macOS audio buzzer, MQTT publishing, auto-snapshot logger
-│   └── ui/
-│       ├── __init__.py
-│       └── visualizer.py    # Overlay rendering, alarm banner, Picture-in-Picture ROI, side-by-side
-├── web/
-│   ├── app.py               # Flask web server with decoupled capture & detection threads
-│   ├── static/              # CSS styles and JavaScript (dashboard, camera grid, settings)
-│   └── templates/           # HTML templates (camera monitoring, multi-cam grid, configuration)
+│   ├── settings.py              # All tunable constants + save/load helpers
+│   ├── cameras.json             # Persisted camera list (auto-managed)
+│   └── runtime_settings.json   # Live runtime overrides from dashboard
+│
 ├── models/
-│   ├── best.pt              # Fine-tuned YOLO weapon detection model weights
-│   └── yolov8n.pt           # YOLOv8 nano person detection model
-├── data/
-│   └── images/              # Benchmark test image dataset (image1.jpg - image14.jpg)
-├── results/                 # Verified detections, comparison outputs, and alert incident snapshots
-├── main.py                  # Primary CLI application entry point (Camera, Dual-cam, Compare)
-├── detecting-images.py      # Backward-compatible script interface
-└── preprocessing-images.py  # Image preprocessing & Wavelet experiments
+│   ├── best.pt                  # Custom-trained YOLOv8 weapon model
+│   └── yolov8n.pt               # YOLOv8 nano — person detection
+│
+├── src/
+│   ├── detection/
+│   │   ├── detector.py          # WeaponDetector: SAHI + YOLO + NMS
+│   │   └── verifier.py          # ThreatVerifier: accumulation + alert gate
+│   ├── dip/
+│   │   └── enhancement.py       # DIP pipeline: Wavelet -> CLAHE -> Unsharp
+│   ├── alerts/
+│   │   └── alert_manager.py     # AlertManager: MQTT + Buzzer + Snapshots
+│   └── ui/
+│       └── visualizer.py        # Bounding box / overlay rendering
+│
+├── web/
+│   ├── app.py                   # Flask app: routes, camera workers, streams
+│   ├── templates/               # Jinja2 HTML templates
+│   └── static/                  # CSS, JS, assets
+│
+└── results/                     # Incident snapshots (if enabled)
 ```
 
 ---
 
-## ⚙️ How the Pipeline Works (Step-by-Step Flowchart)
+## 📦 Requirements
 
-The system is designed with a **False-Positive Rejection Architecture** to ensure harmless elongated items (e.g., phones, pens, wallets, remotes) are not misclassified as weapons:
-
-```
-[Raw Camera Frame]
-        │
-        ▼
-[Stage 1: Human-Guided Targeted SAHI]
-   ├── Detects humans using yolov8n.pt (conf >= 0.35)
-   ├── Expands bounding box by +35% horizontal / +25% vertical margin (capturing outstretched aiming arms & waist)
-   ├── Adaptive Slicing: Slices human ROI into overlapping high-res tiles (640px) at 1:1 native camera resolution
-   ├── Upscales small crops using Bicubic Super-sampling (min dimension >= 640px)
-   └── (Fallback: Full frame processed directly if no human is present)
-        │
-        ▼
-[Stage 2: DIP Enhancement]
-   ├── 2D Discrete Wavelet Transform (Haar): boosts high-frequency subbands (LH, HL, HH x 1.25)
-   ├── LAB Color Space CLAHE: equalizes luminance channel without color distortion
-   └── Unsharp Masking: restores crisp edges via Gaussian subtraction
-        │
-        ▼
-[Stage 3: YOLO Weapon Inference]
-   └── Runs weapon model (best.pt) at high-resolution (imgsz=1280)
-        │
-   ├─ No Detections ──────────────────────────────────────────────► [Skip Frame]
-   └─ Weapon Candidate Detected (conf, bbox, ROI crop)
-        │
-        ▼
-[Stage 4: Confidence Check & DIP Shape Verification]
-   ├─ AI Confidence < 60%  ───────────────────────────────────────► [Skip Frame] (Noise)
-   │
-   ├─ AI Confidence > 90% (High Confidence Direct Pass) ─────────┐
-   │                                                              │
-   └─ AI Confidence 60% – 90% (Moderate Confidence Verification)  │
-           │                                                      │
-           ▼                                                      │
-     [ROI Extraction & Classical DIP Shape Analysis]              │
-     • Aspect Ratio / Elongation (Weapons: 1.2 – 4.0)             │
-     • Canny Edge Density (Metallic edges vs soft textures)       │
-     • Contour Solidity (Area / Convex Hull for grips/triggers)   │
-           │                                                      │
-           ▼                                                      │
-     [Weighted Composite Scoring]                                 │
-     Score = (0.70 × AI_Confidence) + (0.30 × Shape_Score)        │
-           ├─ Score < 70% ────────────────────────────────────────┴► [Skip Frame]
-           └─ Score ≥ 70%
-                   │
-                   ├──────────────────────────────────────────────┘
-                   ▼
-[Stage 5: Temporal Frame Accumulation]
-   ├── Decays counter by -1 if no candidate is detected
-   ├── Increments counter by +1 on consecutive verified detections
-   ├─ Count < 4 frames ───────────────────────────────────────────► [Hold & Accumulate Status]
-   └─ Count ≥ 4 consecutive frames (Spurious flicker rejected)
-           │
-           ▼
-[Stage 6: Dashboard Check & Confirmed Threat Dispatch]
-   ├─ Monitoring Armed = Inactive ────────────────────────────────► [Skip Frame]
-   └─ Monitoring Armed = Active ──► [CONFIRMED THREAT]
-           │
-           ├── 🔊 Audio Alert: macOS system buzzer chime
-           ├── 📡 MQTT Publish: JSON event to security/threats
-           ├── 🚨 Visual Banner: Red flashing warning banner & HUD
-           └── 📸 Incident Snapshot: Timestamped image saved to results/
-```
-
----
-
-## 🔍 Comprehensive Function & Module Reference
-
-### 1. DIP Enhancement ([`src/dip/enhancement.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/dip/enhancement.py))
-
-Provides classical image processing transforms that accentuate fine metallic borders, firearm contours, and blade highlights.
-
-#### `apply_wavelet_subband_boost(l_channel, boost_factor=1.25)`
-* **Description**: Applies 2D Discrete Wavelet Transform (DWT) using the Haar wavelet to the Luminance ($L$) channel.
-* **How It Works**:
-  1. Decomposes the single-channel image into 4 frequency subbands: $LL$ (low-frequency approximation), $LH$ (horizontal details), $HL$ (vertical details), and $HH$ (diagonal details).
-  2. Multiplies the detail subbands ($LH, HL, HH$) by `boost_factor` ($1.25\times$).
-  3. Reconstructs the channel using the Inverse Discrete Wavelet Transform (IDWT).
-  4. Clips pixel values to $[0, 255]$ and converts back to `uint8`.
-* **Inputs**:
-  * `l_channel` (`numpy.ndarray`): Luminance channel from LAB color space.
-  * `boost_factor` (`float`, default `1.25`): Multiplier for high-frequency subbands.
-* **Returns**: `numpy.ndarray` — Edge-boosted luminance channel.
-
-#### `apply_clahe(image, clip_limit=2.0, tile_grid_size=(8, 8))`
-* **Description**: Contrast Limited Adaptive Histogram Equalization.
-* **How It Works**: Converts the image from BGR to LAB color space, extracts the $L$ (lightness) channel, applies CLAHE to prevent over-amplifying noise while bringing out shadowed weapons, and converts back to BGR.
-* **Inputs**:
-  * `image` (`numpy.ndarray`): BGR image.
-  * `clip_limit` (`float`, default `2.0`): Threshold for contrast limiting.
-  * `tile_grid_size` (`tuple`, default `(8, 8)`): Grid size for local histogram equalization.
-* **Returns**: `numpy.ndarray` — Contrast-enhanced BGR image.
-
-#### `apply_unsharp_mask(image, sigma=1.5, strength=1.4)`
-* **Description**: High-frequency edge restoration filter.
-* **How It Works**: Computes a blurred image via Gaussian blur with standard deviation `sigma`. Subtracts the blurred image from the original according to the formula:
-  $$\text{Sharpened} = \text{image} \cdot \text{strength} - \text{blurred} \cdot (\text{strength} - 1.0)$$
-* **Inputs**:
-  * `image` (`numpy.ndarray`): BGR image.
-  * `sigma` (`float`, default `1.5`): Gaussian kernel spread.
-  * `strength` (`float`, default `1.4`): Edge boost weight.
-* **Returns**: `numpy.ndarray` — Sharpened image.
-
-#### `apply_dip_enhancement(image, use_wavelet=True)`
-* **Description**: Main pipeline function integrating Wavelet DWT, CLAHE, and Unsharp Masking.
-* **How It Works**:
-  1. Splits input image into LAB channels.
-  2. Optionally boosts high frequencies on the $L$ channel with `apply_wavelet_subband_boost`.
-  3. Applies CLAHE on the enhanced $L$ channel.
-  4. Merges LAB channels and converts back to BGR.
-  5. Applies `apply_unsharp_mask` on the output.
-* **Inputs**:
-  * `image` (`numpy.ndarray`): Input BGR image or ROI.
-  * `use_wavelet` (`bool`, default `True`): Whether to include Wavelet DWT subband boosting.
-* **Returns**: `numpy.ndarray` — Fully enhanced image.
-
----
-
-### 2. DIP Shape Analysis ([`src/dip/shape_analysis.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/dip/shape_analysis.py))
-
-Evaluates geometric properties on candidate weapon crops to distinguish actual weapons from everyday items.
-
-#### `compute_shape_similarity(roi_crop)`
-* **Description**: Computes a normalized shape score ($0.0$ to $1.0$) based on three classical DIP metrics:
-  1. **Aspect Ratio / Elongation**: Handguns, rifles, and knives exhibit characteristic elongation ratios between $1.2$ and $4.0$.
-     * Aspect in $[1.2, 4.0] \rightarrow 0.95$ score.
-     * Aspect in $[1.0, 1.2) \rightarrow 0.70$ score.
-     * Outside range $\rightarrow 0.55$ score.
-  2. **Canny Edge Density**: Canny edge detection ($50, 150$) computes edge density:
-     $$\text{Density} = \frac{\sum \text{Edge Pixels}}{w \times h}$$
-     Weapons have sharp metallic boundaries, scoring $\text{Density} \times 4.0$ clipped between $0.40$ and $1.0$.
-  3. **Contour Solidity**: Finds the largest external contour $C$ and its convex hull $H$:
-     $$\text{Solidity} = \frac{\text{Area}(C)}{\text{Area}(H)}$$
-     Weapons feature non-convex geometries (trigger guards, handles, barrels), typical solidity falling in $[0.30, 0.88] \rightarrow 0.90$ score. Convex blobs score $0.60$.
-* **Composite Formula**:
-  $$\text{Shape Score} = 0.40 \cdot \text{Aspect Score} + 0.35 \cdot \text{Density Score} + 0.25 \cdot \text{Solidity Score}$$
-* **Inputs**: `roi_crop` (`numpy.ndarray`): Bounding box crop of the detected weapon.
-* **Returns**: `float` — Normalized shape confidence ($0.00$ to $1.00$).
-
----
-
-### 3. Weapon Detection & Targeted SAHI ([`src/detection/detector.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/detection/detector.py))
-
-Combines person detection, generous safety margins, multi-tile slicing (SAHI), and high-resolution weapon inference.
-
-#### Key Functions & Class `WeaponDetector`
-* **`generate_slices(img_w, img_h, tile_size=640, overlap_ratio=0.25)`**:
-  * Calculates sliding window tile coordinates across the expanded human crop with 25% overlap to ensure weapons straddling slice borders are never cut in half.
-* **`apply_nms(candidates, iou_threshold=0.45)`**:
-  * Merges duplicate weapon candidate detections produced by overlapping tiles using OpenCV NMS (`cv2.dnn.NMSBoxes`).
-* **`WeaponDetector.__init__(weapon_model_path, person_model_path)`**:
-  * Loads YOLO weapon model (`best.pt`) and person detection model (`yolov8n.pt`).
-* **`WeaponDetector.detect(frame, conf_threshold=0.50, imgsz=1280, use_zoom=True, use_sahi=True, ...)`**:
-  * **How It Works**:
-    1. Runs person detector (`yolov8n.pt`, `conf=0.35`) across the full frame.
-    2. **Generous Safety Margins**: Expands person bounding boxes by **+35% horizontal margin** and **+25% vertical margin**, guaranteeing extended arms aiming guns, waist holsters, and dropped weapons near feet are captured.
-    3. **Targeted SAHI Slicing**:
-       * If the crop is large (tall or close person), slices into overlapping 640px tiles at **1:1 native camera resolution**, preserving microscopic pixel details of handguns and knives without downsampling.
-       * If the crop is small/distant ($<640\text{px}$), upscales using **Bicubic Super-Sampling** (`cv2.INTER_CUBIC`).
-    4. Applies DIP enhancement (`apply_dip_enhancement`) per tile.
-    5. Runs weapon model on each tile.
-    6. **Coordinate Translation & Sliced NMS**: Remaps tile detections to crop coordinates, then to full 1080p frame coordinates, and deduplicates overlap artifacts via NMS.
-    7. **Fallback**: Runs inference on the full frame if no humans are detected or if zoom is disabled.
-  * **Returns**:
-    * `raw_candidates` (`list[dict]`): List of candidate dictionaries with keys `box` $(x_1, y_1, x_2, y_2)$, `cls`, `label`, `conf`, and `roi` image.
-    * `person_boxes` (`list[tuple]`): List of `(px_1, py_1, px_2, py_2, p_conf)`.
-
----
-
-### 4. Threat Verification & Rejection Logic ([`src/detection/verifier.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/detection/verifier.py))
-
-Enforces the verification pipeline to eliminate false positives.
-
-#### Class `ThreatVerifier`
-* **`__init__(alert_manager=None)`**:
-  * Configures thresholds (`CONF_MIN=0.60`, `CONF_HIGH=0.80`, `WEIGHT_AI=0.70`, `WEIGHT_SHAPE=0.30`, `WEIGHTED_SCORE_MIN=0.70`, `FRAME_ACCUMULATION_MIN=4`).
-  * Initializes state tracking (`consecutive_frames=0`, `dashboard_active=True`).
-* **`verify_candidates(candidates, frame)`**:
-  * **How It Works**:
-    1. **Confidence Filtering**: If candidate AI confidence $< 60\%$, discards as noise.
-    2. **Branching**:
-       * If AI confidence $\ge 80\%$, grants a direct pass (`shape_score = 1.0`, `weighted_score = ai_conf`).
-       * If AI confidence is between $60\%$ and $80\%$, computes `compute_shape_similarity(roi)` and evaluates:
-         $$\text{Weighted Score} = (0.70 \cdot \text{AI Conf}) + (0.30 \cdot \text{Shape Score})$$
-         Requires $\text{Weighted Score} \ge 0.70$ to advance.
-    3. **Temporal Frame Accumulation**:
-       * If a candidate passes, increments `consecutive_frames`.
-       * If no candidate passes in this frame, decrements `consecutive_frames` towards 0.
-       * Requires `consecutive_frames >= 4` to confirm threat.
-    4. **Dashboard Armed Check & Alerting**:
-       * If confirmed and `dashboard_active` is `True`, triggers `alert_manager.on_detection_confirm`.
-  * **Returns**:
-    * `verified_threats` (`list[dict]`): Threat metadata including `status` (`"ACCUMULATING (N/4)"` or `"CONFIRMED"`), `weighted_score`, `ai_conf`, `shape_score`.
-    * `is_confirmed` (`bool`): `True` when $\ge 4$ consecutive frames pass and armed status is active.
-
----
-
-### 5. Alert Dispatcher & Logger ([`src/alerts/alert_manager.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/alerts/alert_manager.py))
-
-Dispatches audio alarms, MQTT telemetry, and evidence files.
-
-#### Class `AlertManager`
-* **`__init__()`**: Initializes alert cooldown timer (2.0s) and attempts MQTT connection.
-* **`_init_mqtt()`**: Connects asynchronously to MQTT broker (`localhost:1883`, topic `security/threats`) via `paho-mqtt` if installed.
-* **`trigger_buzzer()`**: Plays macOS audio chime (`afplay /System/Library/Sounds/Ping.aiff`) in a background process, rate-limited by cooldown. Falls back to terminal bell (`\a`).
-* **`publish_mqtt(threat_data)`**: Publishes JSON-serialized threat telemetry payload to the configured MQTT broker and topic.
-* **`save_incident_snapshot(frame, threat_label)`**: Saves a timestamped full-resolution JPEG (`ALERT_<label>_<YYYYMMDD_HHMMSS>.jpg`) into `results/`.
-* **`on_detection_confirm(frame, threat_label, score)`**: Orchestrates alert sequence: sounds buzzer, publishes MQTT payload, and saves incident snapshot.
-* **`close()`**: Stops the background MQTT loop and disconnects client cleanly.
-
----
-
-### 6. Visualizer & HUD Rendering ([`src/ui/visualizer.py`](file:///Users/matsakonz/Downloads/Digital_Final/src/ui/visualizer.py))
-
-Handles graphic rendering, bounding boxes, alarm banners, and PiP overlays.
-
-#### Functions & Class `Visualizer`
-* **`draw_label(img, text, pos, ...)`**: Helper that draws text with an auto-sized dark background pill for high contrast.
-* **`render_overlay(frame, person_boxes, verified_threats, is_confirmed, hud_info=None)`**:
-  * Draws person bounding boxes in orange.
-  * Draws threat boxes:
-    * **Accumulating**: Orange/Yellow box with count label `VERIFYING (N/4)`.
-    * **Confirmed**: Flashing red/red-orange box with label `CONFIRMED: <label> (X%)`.
-  * Renders a flashing top red alarm banner across the monitor when `is_confirmed` is active.
-  * Renders HUD telemetry at the bottom.
-* **`render_detect_image(frame, person_boxes, verified_threats, is_confirmed, hud_info=None, use_dip=True, use_wavelet=True)`**:
-  * Transforms background image with full DIP enhancement.
-  * Draws overlays using `render_overlay`.
-  * **Picture-in-Picture (PiP) Inset**: Crops the verified threat weapon ROI, upscales it with bicubic interpolation, sharpens it, and renders an inset window with a bezel border in the top-right corner.
-* **`draw_timestamp(img, timestamp_str=None, pos=(20, 38))`**: Draws CCTV-style `REC YYYY-MM-DD HH:MM:SS` watermark.
-* **`draw_mode_badge(img, mode="ORIGINAL CAM", is_threat=False)`**: Renders top-right badge indicating current video mode (`ORIGINAL CAM` vs `DETECT IMAGE`).
-* **`create_side_by_side(original, detected)`**: Horizontally concatenates raw camera view and annotated detection view.
-
----
-
-### 7. Core CLI & Main Orchestrator ([`main.py`](file:///Users/matsakonz/Downloads/Digital_Final/main.py))
-
-The main desktop runtime supporting single-camera, dual-camera grid, and batch test image verification.
-
-#### `scan_available_cameras(max_to_check=4)`
-* **Description**: Probes video capture devices index `0` through `max_to_check - 1` and returns a list of actively readable indices.
-
-#### `open_cap(camera_idx, resolution=(1920, 1080))`
-* **Description**: Initializes an OpenCV `VideoCapture`, configuring requested width and height.
-
-#### `run_camera(...)`
-* **Description**: Live camera detection loop.
-* **How It Works**:
-  1. Initializes `AlertManager`, `WeaponDetector`, `ThreatVerifier`, and `Visualizer`.
-  2. Reads primary camera feed and processes detection/verification.
-  3. Supports secondary camera feed when in dual-camera mode (`'g'` key), displaying both streams side-by-side (960x540 each).
-  4. Listens for live hotkeys (`'k'`, `'0'`, `'1'`, `'g'`, `'d'`, `'w'`, `'z'`, `'c'`, `'s'`, `'q'`).
-
-#### `run_image_comparison(images_dir, output_dir, ...)`
-* **Description**: Batch processes all test images in `data/images/`, generates side-by-side comparison images, and saves them to `results/verified_<image_name>`.
-
----
-
-### 8. Web Dashboard & Multi-Threaded Streaming ([`web/app.py`](file:///Users/matsakonz/Downloads/Digital_Final/web/app.py))
-
-Flask-based web interface featuring decoupled camera ingestion, multi-camera grid viewing, real-time configuration tuning, and smart auto-switching.
-
-#### Class `CameraStreamWorker`
-* **`__init__(cam_id, source, name)`**: Initializes dedicated capture and detection threads for a camera.
-* **`_capture_loop()`**: Independent thread reading frames at 30+ FPS directly from the hardware or RTSP source into a double buffer.
-* **`_detection_loop()`**: Dedicated worker thread executing YOLO and DIP verification in the background without blocking the live video stream.
-* **`get_frame()` & `get_detection_state()`**: Thread-safe accessors for latest frame and threat telemetry.
-* **`stop()`**: Releases camera resource.
-
-#### Class `CameraHub`
-* **`load_cameras()` & `save_cameras(cameras)`**: Reads and writes camera registry to `config/cameras.json`.
-* **`get_worker(cam_id)`**: Retrieves or spawns a `CameraStreamWorker` for the given camera ID.
-* **`release_cam(cam_id)`**: Shuts down worker and releases video capture.
-
-#### Helper & Generator Functions
-* **`create_offline_frame(camera_name)`**: Generates a placeholder JPEG when a camera is offline or disconnected.
-* **`generate_video_stream(cam_id)`**: Multipart MJPEG generator.
-  * **Smart Auto-Switch**: Streams clean 30+ FPS `ORIGINAL CAM` when safe; automatically switches to `DETECT IMAGE` with bounding boxes and zoomed PiP inset whenever a weapon is verified.
-* **`start_server(host="0.0.0.0", port=5001)`**: Boots Flask server, automatically trying fallback ports (`5001` - `5010`) if port is in use.
-
-#### Web & REST API Routes
-| Endpoint | Method | Description |
+| Package | Min Version | Purpose |
 |---|---|---|
-| `/` | `GET` | Main live camera surveillance dashboard ([`camera.html`](file:///Users/matsakonz/Downloads/Digital_Final/web/templates/camera.html)) |
-| `/settings` | `GET` | System settings & camera management UI ([`settings.html`](file:///Users/matsakonz/Downloads/Digital_Final/web/templates/settings.html)) |
-| `/video_feed/<cam_id>` | `GET` | High-performance MJPEG live stream for specified camera |
-| `/api/cameras` | `GET` | Returns list of configured cameras from `cameras.json` |
-| `/api/cameras` | `POST` | Registers a new local USB or IP camera |
-| `/api/cameras/<cam_id>` | `DELETE` | Removes camera and releases stream worker |
-| `/api/status` | `GET` | Polling endpoint for FPS, threat counts, person count, and recent event logs |
-| `/api/view_mode/<mode>` | `POST` | Manually sets stream view mode (`'auto'`, `'detect'`, `'original'`) |
-| `/api/settings` | `GET` | Fetches current verification thresholds and weights |
-| `/api/settings` | `POST` | Updates thresholds (`CONF_MIN`, `CONF_HIGH`, weights, etc.) in real time |
-| `/api/toggle/<feature>` | `POST` | Toggles pipeline feature (`'zoom'`, `'dip'`, `'wavelet'`) |
-| `/api/snapshot` | `POST` | Captures and saves manual evidence snapshot to `results/` |
+| `ultralytics` | >= 8.0.0 | YOLOv8 inference |
+| `opencv-python` | >= 4.8.0 | Video capture, image processing, NMS |
+| `PyWavelets` | >= 1.4.0 | 2D DWT for DIP enhancement |
+| `numpy` | >= 1.24.0 | Array operations |
+| `Flask` | >= 3.0.0 | Web dashboard server |
+| `paho-mqtt` | >= 2.0.0 | MQTT alert publishing |
+| `torch` | >= 2.0.0 | PyTorch backend for YOLO |
+| `torchvision` | >= 0.15.0 | Torchvision transforms |
+| `Pillow` | >= 10.0.0 | Image I/O |
 
 ---
 
-### 9. Legacy & Experimentation Scripts
+## ⚙️ Installation
 
-* **[`detecting-images.py`](file:///Users/matsakonz/Downloads/Digital_Final/detecting-images.py)**: Backward-compatible wrapper exposing:
-  * `open_camera(...)`: Wraps `main.run_camera`.
-  * `compare_all_images(...)`: Wraps `main.run_image_comparison`.
-  * `detect_from_camera`: Function alias for `open_camera`.
-* **[`preprocessing-images.py`](file:///Users/matsakonz/Downloads/Digital_Final/preprocessing-images.py)**: Wavelet experimental testbed:
-  * `apply_symlet_transform(image)`: Symlet 2 DWT returning horizontal detail subband ($LH$).
-  * `apply_daubechies_transform(image)`: Daubechies 2 DWT returning horizontal detail subband ($LH$).
-  * `apply_haar_transform(image)`: Haar DWT returning horizontal detail subband ($LH$).
-  * `enhance_contrast(image)`: Min-max normalization contrast stretcher.
-  * `process_images_in_folder(input_folder, output_folder)`: Batch wavelet testbed runner.
+### 1. Clone the repository
+```bash
+git clone <your-repo-url>
+cd Digital_Final
+```
 
----
-
-## ⚙️ Configuration Reference ([`config/settings.py`](file:///Users/matsakonz/Downloads/Digital_Final/config/settings.py))
-
-| Parameter | Default Value | Description |
-|---|---|---|
-| `CONF_MIN` | `0.60` | Minimum AI confidence threshold. Detections $< 60\%$ are discarded. |
-| `CONF_HIGH` | `0.80` | High-confidence threshold. Detections $\ge 80\%$ bypass shape analysis. |
-| `WEIGHT_AI` | `0.70` | Weight assigned to AI confidence in moderate bracket verification ($70\%$). |
-| `WEIGHT_SHAPE` | `0.30` | Weight assigned to DIP shape similarity score ($30\%$). |
-| `WEIGHTED_SCORE_MIN` | `0.70` | Minimum composite score required to pass verification ($\ge 70\%$). |
-| `FRAME_ACCUMULATION_MIN` | `4` | Number of consecutive positive frames required to confirm a threat. |
-| `DASHBOARD_ACTIVE` | `False` | Default monitoring armed status in CLI mode. |
-| `TARGET_CLASSES` | `["Pistol", "Knife"]` | Threat classes to detect. By default, only actual weapons are detected. |
-| `ALL_CLASSES` | `["Pistol", "Knife", "Smartphone", "Purse", "Bill", "Card"]` | All available classes supported by the trained model. |
-| `IMGSZ` | `1280` | YOLO inference input image resolution. |
-| `USE_HUMAN_ZOOM` | `True` | Enables person detection crop and ROI zooming. |
-| `USE_SAHI` | `True` | Enables Targeted SAHI (Multi-tile Slicing) on human crops. |
-| `HUMAN_MARGIN_X` | `0.35` | +35% horizontal safety margin around person (captures extended arms & aiming). |
-| `HUMAN_MARGIN_Y` | `0.25` | +25% vertical safety margin around person (captures raised hands & dropped guns). |
-| `SAHI_TILE_SIZE` | `640` | Tile resolution for sliced inference (native 1:1 camera pixel scale). |
-| `SAHI_OVERLAP` | `0.25` | 25% overlap between adjacent tiles to prevent seam clipping. |
-| `SAHI_NMS_IOU` | `0.45` | IoU threshold for OpenCV NMS to deduplicate overlapping slice detections. |
-| `USE_DIP` | `True` | Enables CLAHE and Unsharp Masking pipeline. |
-| `USE_WAVELET` | `True` | Enables 2D Wavelet DWT luminance subband boosting. |
-| `CAMERA_INDEX` | `0` | Default hardware camera device index. |
-| `CAMERA_RESOLUTION` | `(1920, 1080)` | Hardware capture resolution request. |
-| `WINDOW_SIZE` | `(1600, 900)` | Default GUI window display dimensions. |
-| `BUZZER_ENABLED` | `True` | Enables audio alert chime on confirmed threat. |
-| `MQTT_ENABLED` | `True` | Enables MQTT telemetry publishing. |
-| `MQTT_BROKER` | `"localhost"` | MQTT broker host. |
-| `MQTT_PORT` | `1883` | MQTT broker port. |
-| `MQTT_TOPIC` | `"security/threats"` | MQTT topic destination. |
-
----
-
-## 💻 Installation & Setup
-
-### 1. Prerequisites
-* Python 3.9 – 3.12
-* macOS, Linux, or Windows (Audio buzzer configured for macOS `afplay` with terminal bell fallback)
-
-### 2. Virtual Environment Setup
+### 2. Create a virtual environment
 ```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate      # macOS / Linux
+# venv\Scripts\activate       # Windows
 ```
 
-### 3. Install Dependencies
+### 3. Install dependencies
 ```bash
-pip install ultralytics opencv-python pywavelets numpy flask paho-mqtt
+pip install -r requirements.txt
+```
+
+### 4. Place model files
+```
+models/
+├── best.pt        <- Custom weapon detection model (YOLOv8)
+└── yolov8n.pt     <- Person detection (download from ultralytics)
+```
+
+> Download `yolov8n.pt` automatically on first run via `from ultralytics import YOLO; YOLO("yolov8n.pt")` if not present.
+
+---
+
+## 🚀 Usage
+
+### Start the web dashboard
+```bash
+python main.py
+```
+
+The server starts at **http://localhost:5001** by default.
+
+### Custom host/port
+```bash
+python main.py --host 0.0.0.0 --port 8080
+```
+
+### CLI arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--host` | `0.0.0.0` | Network interface to bind |
+| `--port` | `5001` | Port to serve the dashboard |
+
+---
+
+## 🔧 Configuration
+
+All core constants live in `config/settings.py`. Key settings:
+
+### Detection Thresholds
+```python
+CONF_MIN = 0.6                # Minimum weapon confidence to pass verification
+FRAME_ACCUMULATION_MIN = 3    # Consecutive frames required to confirm a threat
+TARGET_CLASSES = ['Pistol']   # Which weapons to actively detect
+```
+
+### DIP Pipeline
+```python
+USE_DIP = True          # Enable/disable full DIP enhancement
+USE_WAVELET = True      # Enable/disable wavelet subband boost
+USE_SAHI = True         # Enable/disable SAHI tile slicing
+USE_HUMAN_ZOOM = True   # Enable/disable person-crop focus
+```
+
+### SAHI Settings
+```python
+SAHI_TILE_SIZE = 640    # Tile size in pixels
+SAHI_OVERLAP = 0.25     # Overlap ratio between tiles (25%)
+SAHI_NMS_IOU = 0.45     # IoU threshold for cross-tile NMS deduplication
+HUMAN_MARGIN_X = 0.35   # Horizontal margin expansion around person crop
+HUMAN_MARGIN_Y = 0.25   # Vertical margin expansion around person crop
+```
+
+### Alert Settings
+```python
+MQTT_ENABLED = True
+MQTT_BROKER = "broker.emqx.io"
+MQTT_PORT = 1883
+MQTT_TOPIC = "security/threats"
+BUZZER_ENABLED = True
+SAVE_SNAPSHOTS = False   # Set True to save evidence images to results/
+```
+
+> Most settings can also be changed live from the **Settings page** in the dashboard without restarting.
+
+---
+
+## 🌐 Web Dashboard
+
+| Page | Route | Description |
+|---|---|---|
+| **Camera View** | `/` | Live MJPEG streams for all active cameras |
+| **Settings** | `/settings` | Runtime config: confidence, model, DIP toggles |
+| **Dashboard** | `/dashboard` | Threat event history and system status |
+
+### Camera Management
+- **Add Camera** — enter a USB index (e.g. `0`) or RTSP URL (e.g. `rtsp://192.168.1.100/stream`)
+- **Delete Camera** — removes the camera and stops its detection worker
+- Camera list is automatically persisted to `config/cameras.json`
+
+---
+
+## 🚨 Alert System
+
+On confirmed threat detection, `AlertManager` dispatches simultaneously:
+
+### 1. MQTT Payload
+```json
+{
+  "event": "WEAPON_DETECTED_CONFIRMED",
+  "threat": "Pistol",
+  "verification_score": 0.847,
+  "timestamp": "20261017_193045"
+}
+```
+Published to `security/threats` topic. Subscribe with any MQTT client or integrate with Home Assistant, Node-RED, etc.
+
+### 2. Audio Buzzer
+Plays macOS system alert (`/System/Library/Sounds/Ping.aiff`) with a 2-second cooldown between alerts. Falls back to terminal bell on non-macOS systems.
+
+### 3. Snapshot Logging *(optional)*
+Saves a timestamped JPEG to `results/ALERT_Pistol_20261017_193045.jpg` when `SAVE_SNAPSHOTS = True`.
+
+---
+
+## ⚡ Performance Optimizations
+
+### Motion-Based Frame Skip
+The detection worker computes frame-to-frame pixel difference before running YOLO. If the scene is static (mean diff < 1.5), inference is skipped entirely for up to 8 consecutive frames.
+
+- **Idle camera**: ~2–5 YOLO inferences/second instead of ~45
+- **Active scene**: Full-speed inference, no delay
+- Active threats always override the skip (`has_threat=True`)
+
+### Module-Level CLAHE
+`_CLAHE` is created **once** at module import, not per-frame/per-tile. With SAHI generating dozens of tiles per frame, this eliminates significant allocation overhead.
+
+### Model Warm-up
+Both YOLO models run a dummy 640x640 inference immediately after loading, triggering PyTorch JIT compilation before any real camera frame arrives.
+
+### Daubechies-2 Wavelet
+Upgraded from basic Haar to `db2` wavelet, which captures smoother weapon contour edges while producing fewer reconstruction artifacts on forward/inverse DWT.
+
+---
+
+## 🤖 Models
+
+| Model File | Task | Architecture | Notes |
+|---|---|---|---|
+| `best.pt` | Weapon detection | YOLOv8 (custom) | Trained on pistol/knife/threat dataset |
+| `yolov8n.pt` | Person detection | YOLOv8 Nano | Ultralytics pretrained COCO |
+
+### Supported Weapon Classes
+```python
+ALL_CLASSES = ["Pistol", "Knife", "Smartphone", "Purse", "Bill", "Card"]
+TARGET_CLASSES = ["Pistol"]   # Active detection classes (configurable in dashboard)
 ```
 
 ---
 
-## 🚀 How to Run
+## 📄 License
 
-### Option A: Web Surveillance Dashboard (Recommended)
-Launch the multi-threaded web application with live camera grid, smart auto-switch, and settings editor:
-```bash
-python web/app.py
-```
-Open your browser at: **`http://localhost:5001`**
-
-### Option B: Desktop CLI Live Camera
-Run single-camera detection with full HUD overlays:
-```bash
-python main.py --mode camera --camera 0
-```
-
-### Option C: Desktop Dual-Camera Grid Mode
-Simultaneously stream and detect from two connected cameras (e.g., FaceTime camera + external USB/iPhone camera):
-```bash
-python main.py --mode dual
-```
-
-### Option D: Batch Test Dataset Verification
-Evaluate the verification pipeline across all benchmark test images in `data/images/`:
-```bash
-python main.py --mode compare
-```
-Outputs side-by-side comparison images into the `results/` folder.
+This project was developed as part of a Digital Image Processing (DIP) final project.
 
 ---
 
-## 🎮 Live Keyboard Controls (Desktop Mode)
-
-When running `main.py` in desktop camera mode, use the following interactive hotkeys:
-
-| Key | Action |
-|---|---|
-| **`k`** or **`TAB`** | **Switch Camera**: Cycles to the next connected camera on the fly |
-| **`0`** / **`1`** / **`2`** | **Direct Switch**: Switches directly to camera index 0, 1, or 2 |
-| **`g`** | **Dual-Camera Grid**: Toggles split-screen streaming for two cameras |
-| **`t`** | **Toggle Targeted SAHI**: Toggles multi-tile slicing on human crop ON / OFF |
-| **`d`** | **Toggle DIP**: Toggles CLAHE + Unsharp Masking ON / OFF |
-| **`w`** | **Toggle Wavelet**: Toggles 2D Wavelet DWT edge boosting ON / OFF |
-| **`z`** | **Toggle Human-Zoom**: Toggles person ROI cropping & super-sampling ON / OFF |
-| **`c`** | **Toggle Side-by-Side**: Toggles side-by-side original vs detected view |
-| **`s`** | **Manual Snapshot**: Saves high-resolution snapshot to `./results/` |
-| **`q`** or **`ESC`** | **Quit**: Exits the application and releases video captures |
+*Built with [YOLOv8](https://github.com/ultralytics/ultralytics) · [Flask](https://flask.palletsprojects.com/) · [PyWavelets](https://pywavelets.readthedocs.io/) · [OpenCV](https://opencv.org/)*

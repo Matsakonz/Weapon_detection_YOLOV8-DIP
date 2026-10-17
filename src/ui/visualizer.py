@@ -44,8 +44,7 @@ class Visualizer:
                 # Yellow/Orange box while gathering frames
                 color = (0, 165, 255)
                 box_thickness = 2
-                accum = threat.get('accum_count', 1)
-                tag = f"VERIFYING ({accum}/4): {label} ({int(score * 100)}%)"
+                tag = f"{status}: {label} ({int(score * 100)}%)"
                 tag_bg = (0, 120, 180)
             else:
                 color = (0, 255, 255)

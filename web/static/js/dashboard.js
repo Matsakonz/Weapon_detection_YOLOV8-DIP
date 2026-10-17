@@ -209,6 +209,16 @@ function startStatusPolling() {
       const personEl = document.getElementById('statPersons');
       if (personEl) personEl.innerText = data.person_count || 0;
 
+      const confEl = document.getElementById('statConfidence');
+      if (confEl && data.conf_min !== undefined) {
+        confEl.innerText = `≥ ${Math.round(data.conf_min * 100)}%`;
+      }
+
+      const framesEl = document.getElementById('statFrames');
+      if (framesEl && data.frame_accum_min !== undefined) {
+        framesEl.innerText = `${data.frame_accum_min} Hits`;
+      }
+
       // Sync active class filter buttons dynamically based on loaded model
       if (data.all_classes && data.target_classes) {
         const container = document.getElementById('dynamicClassFilters');
@@ -242,9 +252,13 @@ function startStatusPolling() {
         }
       }
 
+      // Sync header arm indicator
+      if (typeof updateHeaderArmUI === 'function' && data.dashboard_active !== undefined) {
+        updateHeaderArmUI(data.dashboard_active);
+      }
+
       // Handle threat alert banner & chime
       const banner = document.getElementById('alarmBanner');
-      const sound = document.getElementById('alertSound');
 
       if (data.is_confirmed) {
         if (banner) banner.classList.add('active');
@@ -254,7 +268,7 @@ function startStatusPolling() {
         // Play audio alert once per confirmation cycle
         if (!isAlertActive) {
           isAlertActive = true;
-          if (sound) sound.play().catch(() => {});
+          triggerDashboardAlarm();
         }
       } else {
         if (banner) banner.classList.remove('active');
@@ -368,4 +382,39 @@ async function cycleViewMode() {
     console.error("Failed to switch view mode:", err);
   }
 }
+
+// 11. Alarm Sound & Web Audio Fallback
+function triggerDashboardAlarm() {
+  const sound = document.getElementById('alertSound');
+  if (sound) {
+    sound.currentTime = 0;
+    sound.play().catch(() => playSynthesizedAlarmSound());
+  } else {
+    playSynthesizedAlarmSound();
+  }
+}
+
+function playSynthesizedAlarmSound() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    [0, 0.22, 0.44].forEach(offset => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(880, ctx.currentTime + offset);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + offset + 0.16);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.19);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + offset);
+      osc.stop(ctx.currentTime + offset + 0.20);
+    });
+  } catch (e) {
+    console.warn("Web Audio alert sound failed:", e);
+  }
+}
+
 
