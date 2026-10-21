@@ -68,7 +68,7 @@ WINDOW_SIZE = (1600, 900)
 # Alert Settings (MQTT, Buzzer & Snapshot Logging)
 BUZZER_ENABLED = True
 BUZZER_SOUND_PATH = "/System/Library/Sounds/Ping.aiff"  # macOS native alert sound
-SAVE_SNAPSHOTS = False
+SAVE_SNAPSHOTS = True
 MQTT_ENABLED = True
 MQTT_BROKER = "broker.emqx.io"
 MQTT_PORT = 1883

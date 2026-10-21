@@ -1,4 +1,7 @@
+from PIL import ImageOps
+from PIL import ImageOps
 import cv2
+import os
 import numpy as np
 from ultralytics import YOLO
 from src.dip.enhancement import apply_dip_enhancement
@@ -80,19 +83,25 @@ class WeaponDetector:
     7. Sliced NMS & Coordinate Translation: Maps tile boxes back to full 1080p frame.
     8. Full-Frame Fallback: Runs inference on full frame if no humans are detected.
     """
-    def __init__(self, weapon_model_path, person_model_path):
+    def __init__(self, weapon_model_path, person_model_path=None):
         self.weapon_model_path = weapon_model_path
         self.person_model_path = person_model_path
         print(f"[Detector] Loading Weapon Model: {weapon_model_path}")
         self.weapon_model = YOLO(weapon_model_path)
-        print(f"[Detector] Loading Person Model: {person_model_path}")
-        self.person_model = YOLO(person_model_path)
+        
+        if person_model_path and os.path.exists(person_model_path):
+            print(f"[Detector] Loading Person Model: {person_model_path}")
+            self.person_model = YOLO(person_model_path)
+        else:
+            self.person_model = None
+            print("[Detector] Person Model: Disabled (Pure Weaspon Inference Mode)")
 
         # Warm-up: run a dummy inference so JIT/CUDA compilation happens now,
         # not on the first real camera frame (eliminates first-frame latency spike)
         _dummy = np.zeros((640, 640, 3), dtype=np.uint8)
         self.weapon_model(_dummy, verbose=False)
-        self.person_model(_dummy, verbose=False)
+        if self.person_model is not None:
+            self.person_model(_dummy, verbose=False)
         print("[Detector] Models warmed up ✓")
 
     def set_weapon_model(self, weapon_model_path):

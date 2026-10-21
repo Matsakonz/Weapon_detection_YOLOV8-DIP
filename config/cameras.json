@@ -9,14 +9,7 @@
   {
     "id": "cam_1792237406",
     "name": "Camera 1",
-    "source": "rtsp://192.168.137.87:554/stream",
-    "type": "ip",
-    "enabled": true
-  },
-  {
-    "id": "cam_1792237665",
-    "name": "Camera 2",
-    "source": "rtsp://192.168.137.128:554/stream",
+    "source": "rtsp://172.20.10.1:554/stream",
     "type": "ip",
     "enabled": true
   }
